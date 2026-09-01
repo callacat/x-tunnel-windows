@@ -21,7 +21,12 @@ jobs:
         shell: bash
         run: |
           fmt="$(gofmt -l .)"
-          if [ -n "$fmt" ]; then echo "gofmt 未格式化文件:"; echo "$fmt"; exit 1; fi
+          if [ -n "$fmt" ]; then
+            echo "gofmt 未格式化文件: [$fmt]"
+            echo "--- diff 样例 ---"
+            gofmt -d $fmt | head -40
+            exit 1
+          fi
           go vet ./...
           go test ./... -race -count=1
 
