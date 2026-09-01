@@ -15,16 +15,16 @@
 // exact generated typings, so regenerating bindings never breaks it.
 
 import {
-  AppConfig,
+  AppProfiles,
   AppStatus,
-  fromConfig,
   fromGeo,
   fromLogs,
+  fromProfiles,
   fromStatus,
   GeoInfo,
-  InstalledApp,
   LogEntry,
-  PerAppConfig,
+  Profile,
+  toProfile,
 } from "./types";
 
 // ---------- backend service shape (structural, mirror of gui/service.go) ----------
@@ -55,14 +55,10 @@ interface ServiceAPI {
 // ---------- demo data (used while bindings are placeholders) ----------
 
 const DEFAULT_RULES = `x-tunnel 路由规则（每行：行为,条件；# 为注释）
-REJECT,geosite:category-ads-all
-direct,geosite:private
-direct,geoip:private
-proxy,geosite:google
-proxy,geosite:geolocation-!cn
-proxy,geoip:telegram
+direct,cn
 direct,geosite:cn
-direct,geoip:cn
+direct,geoip:private
+proxy,geosite:geolocation-!cn
 `;
 
 const mockState = {
@@ -70,12 +66,32 @@ const mockState = {
   sysProxy: false,
   autostart: false,
   rulesText: DEFAULT_RULES,
-  counters: { proxy: 128, direct: 947, miss: 14, rejected: 23 },
+  hits: { proxy: 128, direct: 947, rejected: 23 },
+  bytes: { sent: 12_345_678, recv: 98_765_432 },
   startedAt: undefined as string | undefined,
+  profiles: [
+    {
+      name: "我的服务器",
+      serverURL: "wss://cf.example.com:8443",
+      token: "demo-token",
+      localListen: "socks5://127.0.0.1:11080",
+      cidr: "",
+      dns: "",
+      ech: "",
+      blockPorts: "443",
+      connections: 3,
+      insecure: false,
+      fallback: true,
+      dialIPs: "",
+      ipStrategy: "4",
+      dnsCacheTTL: "5m",
+    },
+  ] as Profile[],
+  activeProfile: "我的服务器",
   logs: [
     { time: "19:40:02", level: "info", msg: "x-tunnel Windows GUI（演示模式）" },
-    { time: "19:40:02", level: "info", msg: "已加载配置 config.json" },
-    { time: "19:40:03", level: "info", msg: "规则引擎就绪：6 条规则" },
+    { time: "19:40:02", level: "info", msg: "已加载配置 profiles.json" },
+    { time: "19:40:03", level: "info", msg: "规则引擎就绪：4 条规则" },
     { time: "19:40:03", level: "debug", msg: "GEO 数据库命中缓存" },
     { time: "19:41:27", level: "warn", msg: "重连：连接空闲超时，自动恢复" },
     { time: "19:41:28", level: "info", msg: "已建立 wss 隧道" },
@@ -121,36 +137,22 @@ export async function isDemoMode(): Promise<boolean> {
 function mockStatus(): AppStatus {
   return {
     running: mockState.running,
-    listening: "127.0.0.1:40000",
+    listening: "127.0.0.1:11080",
     startedAt: mockState.startedAt,
-    registered: true,
-    isAndroid: false,
     initDone: true,
     sysProxyOn: mockState.sysProxy,
-    registration: {
-      id: "demo-reg-id",
-      assignedIPv4: "172.16.0.2",
-      assignedIPv6: "2606:4700:100::2",
-      endpointV4: "162.159.192.5",
-      tunnelType: "masque",
-    },
-    counters: { ...mockState.counters },
-  };
-}
-
-function mockConfig(): AppConfig {
-  return {
-    listen: "127.0.0.1:40000",
-    rulesPath: "rules.txt",
-    geoDir: "geo",
-    geoRepo: "MetaCubeX/meta-rules-dat",
-    autoUpdateDays: 7,
-    systemProxy: mockState.sysProxy,
-    allowUDP: false,
-    downloadProxy: "https://gh-proxy.org/",
-    themeMode: "system",
-    perAppMode: "off",
-    perAppPackages: [],
+    activeName: mockState.running ? mockState.activeProfile : undefined,
+    configured: true,
+    sidecarOk: true,
+    routeEnabled: true,
+    ruleCount: 4,
+    proxyHits: mockState.hits.proxy,
+    directHits: mockState.hits.direct,
+    rejectedHits: mockState.hits.rejected,
+    siteLoaded: true,
+    ipLoaded: true,
+    bytesSent: mockState.bytes.sent,
+    bytesRecv: mockState.bytes.recv,
   };
 }
 
@@ -202,39 +204,29 @@ export async function stop(): Promise<void> {
   await svc.Stop();
 }
 
-export interface RegisterResult {
-  existing: boolean;
-  id: string;
-}
-
-export async function register(): Promise<RegisterResult> {
+export async function getProfiles(): Promise<AppProfiles> {
   const svc = await loadService();
   if (!svc) {
-    await sleep(jitter(400));
-    mockState.logs.push({ time: now(), level: "info", msg: "已注册（演示）" });
-    return { existing: false, id: "demo-id" };
+    await sleep(jitter(150));
+    return fromProfiles({ active_profile: mockState.activeProfile, profiles: mockState.profiles });
   }
-  const raw = (await svc.Register()) as
-    | [boolean, string]
-    | { existing?: boolean; id?: string }
-    | { existing?: boolean; id?: string }[]
-    | null;
-  // Wails 把 Go 多返回值 (existing, id, error) 序列化为元组 [boolean, string]，
-  // 旧代码按对象读导致 id 恒空（"注册成功（id=）"）。兼容对象/数组两种形态。
-  if (Array.isArray(raw)) {
-    return { existing: raw[0] === true, id: typeof raw[1] === "string" ? raw[1] : "" };
-  }
-  return { existing: raw?.existing === true, id: typeof raw?.id === "string" ? raw.id : "" };
+  return fromProfiles(await svc.ListProfiles());
 }
 
-export async function deregister(): Promise<void> {
+export async function saveProfiles(app: AppProfiles): Promise<void> {
   const svc = await loadService();
   if (!svc) {
-    await sleep(jitter(300));
-    mockState.logs.push({ time: now(), level: "info", msg: "已注销（演示）" });
+    await sleep(jitter(250));
+    mockState.activeProfile = app.activeProfile;
+    mockState.profiles = app.profiles;
+    mockState.logs.push({ time: now(), level: "info", msg: "配置已保存（演示）" });
     return;
   }
-  await svc.Deregister();
+  // 前端 camelCase -> 后端 snake_case（对齐 Go XTunnelProfile JSON tag）。
+  await svc.SaveProfiles({
+    active_profile: app.activeProfile,
+    profiles: app.profiles.map(toProfile),
+  });
 }
 
 export async function getRules(): Promise<string> {
@@ -326,41 +318,6 @@ export async function getSystemProxyEnabled(): Promise<boolean> {
   return (await svc.GetSystemProxyEnabled()) === true;
 }
 
-export async function scanEdges(): Promise<string[]> {
-  return scanEdgesFamily(null);
-}
-
-export async function scanEdgesV4(): Promise<string[]> {
-  return scanEdgesFamily("v4");
-}
-
-export async function scanEdgesV6(): Promise<string[]> {
-  return scanEdgesFamily("v6");
-}
-
-async function scanEdgesFamily(variant: "v4" | "v6" | null): Promise<string[]> {
-  const svc = await loadService();
-  if (!svc) {
-    await sleep(jitter(900));
-    const demo = variant === "v6"
-      ? ["2606:4700:103::2:443", "2606:4700:104::2:443"]
-      : ["162.159.192.5:4500", "162.159.193.10:4500", "162.159.195.3:4500"];
-    return demo;
-  }
-  const raw = variant === "v6" ? await svc.ScanEdgesV6() : variant === "v4" ? await svc.ScanEdgesV4() : await svc.ScanEdges();
-  return Array.isArray(raw) ? (raw as string[]) : [];
-}
-
-export async function applyEdge(addr: string): Promise<void> {
-  const svc = await loadService();
-  if (!svc) {
-    await sleep(jitter(200));
-    mockState.logs.push({ time: now(), level: "info", msg: `已应用边缘 ${addr}（演示）` });
-    return;
-  }
-  await svc.ApplyEdge(addr);
-}
-
 export async function setAutostart(enabled: boolean): Promise<void> {
   const svc = await loadService();
   if (!svc) {
@@ -378,45 +335,6 @@ export async function getAutostartEnabled(): Promise<boolean> {
     return mockState.autostart;
   }
   return (await svc.GetAutostartEnabled()) === true;
-}
-
-export async function getConfig(): Promise<AppConfig> {
-  const svc = await loadService();
-  if (!svc) {
-    await sleep(jitter(150));
-    return mockConfig();
-  }
-  return fromConfig(await svc.GetConfig());
-}
-
-export async function saveConfig(config: AppConfig): Promise<void> {
-  const svc = await loadService();
-  if (!svc) {
-    await sleep(jitter(250));
-    mockState.logs.push({ time: now(), level: "info", msg: "配置已保存（演示）" });
-    return;
-  }
-  // 前端 AppConfig 是 camelCase，但 Go core.Config 的 JSON tag 是 snake_case；
-  // 直接传对象（不要 stringify），Wails 会按字段名映射。
-  await svc.SaveConfig({
-    listen_addr: config.listen,
-    rules_path: config.rulesPath,
-    geo_dir: config.geoDir,
-    geo_repo: config.geoRepo,
-    geo_auto_update_days: config.autoUpdateDays,
-    enable_system_proxy: config.systemProxy,
-    allow_udp: config.allowUDP,
-    download_proxy: config.downloadProxy,
-    theme_mode: config.themeMode,
-    per_app_mode: config.perAppMode ?? "off",
-    per_app_packages: config.perAppPackages ?? [],
-  });
-}
-
-/** 仅更新部分配置字段（如 theme_mode），避免覆盖其他字段。 */
-export async function saveConfigPartial(patch: Partial<AppConfig>): Promise<void> {
-  const current = await getConfig();
-  await saveConfig({ ...current, ...patch });
 }
 
 export async function getLogs(limit = 200): Promise<LogEntry[]> {
@@ -463,73 +381,25 @@ export async function clearLogs(): Promise<void> {
     mockState.logs = [];
     return;
   }
-  // 桌面端有 ClearLogs 绑定；演示/占位模式直接清本地
-  if ("ClearLogs" in svc && typeof (svc as Record<string, unknown>).ClearLogs === "function") {
-    await (svc as Record<string, () => Promise<void>>).ClearLogs();
-  }
+  await svc.ClearLogs();
 }
 
-// openExternalBrowser 用系统浏览器打开 URL（桌面走默认浏览器，Android 跳
-// 第三方浏览器而非 WebView 内打开）。
+// getSidecarLog 读取 sidecar（x-tunnel.exe）原始日志文本（桌面端）。
+export async function getSidecarLog(limit = 200): Promise<string> {
+  const svc = await loadService();
+  if (!svc) {
+    await sleep(jitter(120));
+    return "（演示模式）sidecar 日志暂不可用";
+  }
+  const raw = await svc.SidecarLog(limit);
+  return typeof raw === "string" ? raw : String(raw ?? "");
+}
+
+// openExternalBrowser 用系统浏览器打开 URL（桌面走默认浏览器）。
 export async function openExternalBrowser(url: string): Promise<void> {
   const svc = await loadService();
   if (!svc) return;
   await svc.OpenExternalBrowser(url);
-}
-
-// ---------- 分应用代理（Android） ----------
-
-function mockPerApp(): PerAppConfig {
-  return { mode: "off", packages: [] };
-}
-
-function mockInstalledApps(): InstalledApp[] {
-  return [
-    { package: "org.example.browser", label: "示例浏览器", system: false },
-    { package: "org.example.mail", label: "示例邮箱", system: false },
-    { package: "com.android.settings", label: "设置", system: true },
-  ];
-}
-
-export async function getPerAppConfig(): Promise<PerAppConfig> {
-  const svc = await loadService();
-  if (!svc) {
-    await sleep(jitter(120));
-    return mockPerApp();
-  }
-  const raw = (await svc.GetPerAppConfig()) as Partial<PerAppConfig> | null;
-  const mode = raw?.mode === "allow" || raw?.mode === "disallow" ? raw.mode : "off";
-  return { mode, packages: Array.isArray(raw?.packages) ? (raw.packages as string[]) : [] };
-}
-
-export async function setPerAppConfig(cfg: PerAppConfig): Promise<void> {
-  const svc = await loadService();
-  if (!svc) {
-    await sleep(jitter(250));
-    mockState.logs.push({ time: now(), level: "info", msg: `分应用代理已保存（演示）：${cfg.mode}` });
-    return;
-  }
-  await svc.SetPerAppConfig({ mode: cfg.mode, packages: cfg.packages });
-}
-
-export async function listInstalledApps(): Promise<InstalledApp[]> {
-  const svc = await loadService();
-  if (!svc) {
-    await sleep(jitter(300));
-    return mockInstalledApps();
-  }
-  const raw = await svc.ListInstalledApps();
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((a) => {
-      const o = (a ?? {}) as Partial<InstalledApp>;
-      return {
-        package: String(o.package ?? ""),
-        label: String(o.label ?? o.package ?? ""),
-        system: o.system === true,
-      };
-    })
-    .filter((a) => a.package !== "");
 }
 
 function now(): string {

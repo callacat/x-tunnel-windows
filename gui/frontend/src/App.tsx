@@ -6,7 +6,6 @@ import type { PageKey } from "./lib/nav";
 import StatusPage from "./pages/StatusPage";
 import RulesPage from "./pages/RulesPage";
 import GeoPage from "./pages/GeoPage";
-import ScanPage from "./pages/ScanPage";
 import SettingsPage from "./pages/SettingsPage";
 import LogsPage from "./pages/LogsPage";
 
@@ -31,8 +30,8 @@ export default function App() {
           />
           {!collapsed && (
             <div className="hidden min-w-0 md:block">
-              <p className="truncate text-sm font-semibold">warp-go GUI</p>
-              <p className="truncate text-[10px] text-slate-400">Cloudflare WARP</p>
+              <p className="truncate text-sm font-semibold">x-tunnel GUI</p>
+              <p className="truncate text-[10px] text-slate-400">x-tunnel 客户端</p>
             </div>
           )}
         </div>
@@ -76,7 +75,7 @@ export default function App() {
         <header className="flex items-center justify-between border-b border-slate-200 bg-white/60 px-6 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/60">
           <h1 className="text-base font-semibold">{TITLES[page]}</h1>
           <span className="text-xs text-slate-400">
-            MASQUE over QUIC · SOCKS5 代理
+            WS/WSS 隧道 · SOCKS5 代理
           </span>
         </header>
         <div className="flex-1 overflow-y-auto p-6 pb-16 md:pb-6">
@@ -84,8 +83,7 @@ export default function App() {
             {page === "status" && <StatusPage />}
             {page === "rules" && <RulesPage />}
             {page === "geo" && <GeoPage />}
-            {page === "scan" && <ScanPage />}
-            {page === "settings" && <SettingsPage />}
+            {page === "profiles" && <SettingsPage />}
             {page === "logs" && <LogsPage />}
           </div>
         </div>

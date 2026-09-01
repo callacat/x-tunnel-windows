@@ -1,22 +1,21 @@
-import { useEffect, useState, useCallback } from "react";
-import { ListFilter, Monitor, Moon, Palette, RefreshCw, Rocket, RotateCcw, Save, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
 import {
-  checkUpdate,
-  getAutostartEnabled,
-  getConfig,
-  getPerAppConfig,
-  getVersion,
-  isDemoMode,
-  openExternalBrowser,
-  saveConfig,
-  setAutostart,
-  setPerAppConfig,
-} from "../lib/api";
-import { AppConfig, PerAppConfig } from "../lib/types";
+  CheckCircle2,
+  Monitor,
+  Moon,
+  Palette,
+  Pencil,
+  Plus,
+  Save,
+  Sun,
+  Trash2,
+} from "lucide-react";
+import { getProfiles, getStatus, saveProfiles } from "../lib/api";
+import { AppProfiles, Profile } from "../lib/types";
 import { useThemeContext } from "../lib/ThemeContext";
 import type { ThemeMode } from "../lib/theme";
 import { Button, Card, Field, Toggle, inputCls } from "../components/ui";
-import { PerAppPicker } from "../components/PerAppPicker";
+import { usePoll } from "../lib/usePoll";
 
 const THEME_OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: "light", label: "浅色", icon: Sun },
@@ -24,98 +23,92 @@ const THEME_OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: "system", label: "跟随系统", icon: Monitor },
 ];
 
-// 分应用代理三种模式（off=全量代理，与 v0.5.31 现状一致）。
-const PER_APP_MODES: { value: PerAppConfig["mode"]; label: string; hint: string }[] = [
-  { value: "off", label: "全部应用", hint: "所有应用走代理（默认，与旧版一致）" },
-  { value: "allow", label: "仅指定应用", hint: "白名单：只有列表中的应用走代理" },
-  { value: "disallow", label: "排除指定应用", hint: "黑名单：列表外的应用走代理" },
-];
+// IPv4/IPv6 策略可选值（对齐 Go XTunnelProfile.IPStrategy 注释）。
+const IP_STRATEGY_OPTIONS = ["4", "6", "4,6", "6,4"];
 
-// warp-go 壳自身包名：选择器剔除、保存前兜底剔除（与 Go 侧 androidSelfPackage 一致）。
-const SELF_PACKAGE = "com.wails.app";
+// 新建配置的默认模板（对齐 Go DefaultProfile：不内置任何真实服务器地址/token）。
+function blankProfile(n: number): Profile {
+  return {
+    name: `配置 ${n}`,
+    serverURL: "",
+    token: "",
+    localListen: "socks5://127.0.0.1:11080",
+    cidr: "",
+    dns: "",
+    ech: "",
+    blockPorts: "443",
+    connections: 3,
+    insecure: false,
+    fallback: true,
+    dialIPs: "",
+    ipStrategy: "4",
+    dnsCacheTTL: "5m",
+  };
+}
 
 export default function SettingsPage() {
-  const [cfg, setCfg] = useState<AppConfig | null>(null);
-  const [demo, setDemo] = useState(false);
+  const { mode, setMode } = useThemeContext();
+  // 运行中锁定编辑（后端运行态不允许改配置）。
+  const { data: statusRaw } = usePoll(getStatus, 2000);
+  const locked = !!statusRaw?.running;
+
+  const [data, setData] = useState<AppProfiles | null>(null);
+  const [editing, setEditing] = useState<Profile | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [autostart, setAutostartState] = useState(false);
-  const [autostartBusy, setAutostartBusy] = useState(false);
-  const [version, setVersion] = useState<string>("…");
-  const [updateInfo, setUpdateInfo] = useState<string | null>(null);
-  const [updateUrl, setUpdateUrl] = useState<string | null>(null);
-  const [checking, setChecking] = useState(false);
-  // 分应用代理状态。Card 始终显示：桌面端 config 字段被忽略（VpnService 是
-  // Android 概念），不产生副作用；不依赖 System.IsAndroid()——Wails v3 Android
-  // runtime 不注入 window._wails.environment，该 API 在 Android 上恒 false。
-  const [perAppMode, setPerAppMode] = useState<PerAppConfig["mode"]>("off");
-  const [perAppPackages, setPerAppPackages] = useState<string[]>([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [perAppBusy, setPerAppBusy] = useState(false);
-  const [perAppNotice, setPerAppNotice] = useState<string | null>(null);
-  const [perAppError, setPerAppError] = useState<string | null>(null);
-  const { mode, setMode, setModeFromConfig } = useThemeContext();
+  // 删除二次确认（点一次进入确认态，5 秒无操作自动取消）。
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = async () => {
     try {
-      // getConfig 已返回 fromConfig 归一化后的 AppConfig，不要再包一层
-      // fromConfig（双重归一化，v0.5.7 与 StatusPage 同源 bug）。
-      const config = await getConfig();
-      setCfg(config);
-      setModeFromConfig(config);
+      setData(await getProfiles());
       setError(null);
     } catch (e) {
       setError(String(e));
     }
-  }, [setModeFromConfig]);
-
-  useEffect(() => {
-    void isDemoMode().then(setDemo);
-    void load();
-    getAutostartEnabled().then(setAutostartState).catch(() => {});
-    getVersion().then(setVersion).catch(() => {});
-    // 加载分应用代理配置。
-    getPerAppConfig().then((c) => {
-      setPerAppMode(c.mode);
-      setPerAppPackages(c.packages);
-    }).catch(() => {});
-  }, [load]);
-
-  const onCheckUpdate = async () => {
-    setChecking(true);
-    setUpdateInfo(null);
-    setUpdateUrl(null);
-    try {
-      const info = await checkUpdate();
-      if (info.has_update) {
-        setUpdateInfo(`发现新版本 ${info.tag}（当前 ${version}）`);
-        setUpdateUrl(info.url || null);
-      } else if (info.latest && info.latest !== "dev") {
-        setUpdateInfo(`已是最新版本 ${info.latest}`);
-      } else {
-        setUpdateInfo("当前为开发版，无法比较版本");
-      }
-    } catch (e) {
-      setUpdateInfo(`检查失败：${String(e)}`);
-    } finally {
-      setChecking(false);
-    }
   };
 
-  const set = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
-    setCfg((c) => (c ? { ...c, [key]: value } : c));
+  useEffect(() => {
+    void load();
+  }, []);
+
+  // 编辑态拷贝，避免直接改 data。
+  const setField = <K extends keyof Profile>(key: K, value: Profile[K]) => {
+    setEditing((e) => (e ? { ...e, [key]: value } : e));
+    setError(null);
+  };
+
+  const onAdd = () => {
+    const n = (data?.profiles.length ?? 0) + 1;
+    setEditing(blankProfile(n));
+    setError(null);
+    setNotice(null);
+  };
+
+  const onEdit = (p: Profile) => {
+    setEditing({ ...p });
+    setError(null);
     setNotice(null);
   };
 
   const onSave = async () => {
-    if (!cfg) return;
+    if (!editing || !data) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await saveConfig(cfg);
-      setNotice("配置已保存（重启后生效）");
+      const exists = data.profiles.some((p) => p.name === editing.name);
+      const profiles = exists
+        ? data.profiles.map((p) => (p.name === editing.name ? editing : p))
+        : [...data.profiles, editing];
+      // 激活项改名时跟随新名。
+      const activeProfile =
+        data.activeProfile === editing.name ? editing.name : data.activeProfile;
+      await saveProfiles({ activeProfile, profiles });
+      setData({ activeProfile, profiles });
+      setEditing(null);
+      setNotice("配置已保存");
     } catch (e) {
       setError(String(e));
     } finally {
@@ -123,76 +116,272 @@ export default function SettingsPage() {
     }
   };
 
-  const toggleAutostart = async (v: boolean) => {
-    setAutostartBusy(true);
+  const onActivate = async (name: string) => {
+    if (!data) return;
+    setBusy(true);
     setError(null);
+    setNotice(null);
     try {
-      await setAutostart(v);
-      setAutostartState(v);
-      setNotice(v ? "已开启开机自启" : "已关闭开机自启");
+      await saveProfiles({ ...data, activeProfile: name });
+      setData({ ...data, activeProfile: name });
+      setNotice(`已激活配置：${name}`);
     } catch (e) {
       setError(String(e));
     } finally {
-      setAutostartBusy(false);
+      setBusy(false);
     }
   };
 
-  // 分应用代理：切换模式时清空包列表（列表仅 allow/disallow 有意义）。
-  const changePerAppMode = (m: PerAppConfig["mode"]) => {
-    setPerAppMode(m);
-    setPerAppNotice(null);
-    setPerAppError(null);
-    if (m === "off") setPerAppPackages([]);
-  };
-
-  const onSavePerApp = async () => {
-    setPerAppBusy(true);
-    setPerAppError(null);
-    setPerAppNotice(null);
+  const onDelete = async (name: string) => {
+    if (!data) return;
+    if (confirmDelete !== name) {
+      setConfirmDelete(name);
+      setTimeout(() => setConfirmDelete((c) => (c === name ? null : c)), 5000);
+      return;
+    }
+    setConfirmDelete(null);
+    setBusy(true);
+    setError(null);
+    setNotice(null);
     try {
-      // 保存前兜底剔除壳自身（选择器已剔除，这里双保险，防脏数据）。
-      const packages = perAppPackages.filter((p) => p !== SELF_PACKAGE);
-      await setPerAppConfig({ mode: perAppMode, packages });
-      setPerAppNotice("已保存" + (perAppMode !== "off" ? "，VPN 运行中会重启应用" : ""));
+      const profiles = data.profiles.filter((p) => p.name !== name);
+      // 删除激活项时回退到第一个配置（空列表则清空激活名）。
+      const activeProfile =
+        data.activeProfile === name ? profiles[0]?.name ?? "" : data.activeProfile;
+      await saveProfiles({ activeProfile, profiles });
+      setData({ activeProfile, profiles });
+      setNotice(`已删除配置：${name}`);
     } catch (e) {
-      setPerAppError(String(e));
+      setError(String(e));
     } finally {
-      setPerAppBusy(false);
+      setBusy(false);
     }
   };
 
   return (
     <div className="space-y-4">
-      <Card title="关于">
-        <div className="flex items-center gap-3">
-          <Rocket className="h-5 w-5 text-orange-500" />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">warp-go {version}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Cloudflare WARP 客户端（MASQUE over QUIC/HTTP-3）
-            </p>
-          </div>
-          <Button variant="secondary" onClick={onCheckUpdate} disabled={checking}>
-            {checking ? "检查中…" : "检查更新"}
-          </Button>
+      {locked && (
+        <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          代理运行中，配置已锁定（先停止代理再编辑）。
         </div>
-        {updateInfo && (
-          <p className="mt-3 text-sm">
-            <span className={updateUrl ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}>
-              {updateInfo}
-            </span>
-            {updateUrl && (
-              <button
-                type="button"
-                onClick={() => openExternalBrowser(updateUrl)}
-                className="ml-2 text-orange-600 underline dark:text-orange-400"
-              >
-                前往下载
-              </button>
-            )}
+      )}
+      {notice && (
+        <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+          {notice}
+        </div>
+      )}
+      {error && (
+        <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      <Card
+        title="配置管理"
+        action={
+          <Button onClick={onAdd} disabled={locked}>
+            <Plus className="h-4 w-4" /> 新增配置
+          </Button>
+        }
+      >
+        {!data ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">加载中…</p>
+        ) : data.profiles.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            尚无配置。点击右上角「新增配置」创建第一个服务器配置。
           </p>
+        ) : (
+          <ul className="space-y-3">
+            {data.profiles.map((p) => {
+              const active = p.name === data.activeProfile;
+              return (
+                <li
+                  key={p.name}
+                  className={`rounded-lg border p-4 ${
+                    active
+                      ? "border-orange-300 bg-orange-50/50 dark:border-orange-700/60 dark:bg-orange-950/20"
+                      : "border-slate-200 dark:border-slate-800"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {p.name}
+                        </p>
+                        {active && (
+                          <span className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> 已激活
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 break-all font-mono text-xs text-slate-500 dark:text-slate-400">
+                        {p.serverURL || "（未填写服务器地址）"}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        {p.localListen} · 连接数 {p.connections} · 策略 {p.ipStrategy}
+                        {p.ech ? ` · ECH ${p.ech}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      {!active && (
+                        <Button variant="secondary" onClick={() => onActivate(p.name)} disabled={locked || busy}>
+                          激活
+                        </Button>
+                      )}
+                      <Button variant="secondary" onClick={() => onEdit(p)} disabled={locked}>
+                        <Pencil className="h-4 w-4" /> 编辑
+                      </Button>
+                      <Button
+                        variant="danger"
+                        onClick={() => onDelete(p.name)}
+                        disabled={locked || busy}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        {confirmDelete === p.name ? "确认删除？" : "删除"}
+                      </Button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </Card>
+
+      {editing && (
+        <Card title={`编辑配置：${editing.name}`}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="名称" hint="配置的唯一标识（激活/切换靠它）">
+              <input
+                className={inputCls}
+                value={editing.name}
+                onChange={(e) => setField("name", e.target.value)}
+              />
+            </Field>
+            <Field label="服务器地址" hint="wss://host:port[/path] 或 ws://">
+              <input
+                className={inputCls}
+                value={editing.serverURL}
+                onChange={(e) => setField("serverURL", e.target.value)}
+                placeholder="wss://cf.example.com:8443"
+              />
+            </Field>
+            <Field label="Token" hint="服务器鉴权令牌（可留空）">
+              <input
+                type="password"
+                className={inputCls}
+                value={editing.token}
+                onChange={(e) => setField("token", e.target.value)}
+              />
+            </Field>
+            <Field label="本地监听" hint="本机代理监听地址">
+              <input
+                className={inputCls}
+                value={editing.localListen}
+                onChange={(e) => setField("localListen", e.target.value)}
+                placeholder="socks5://127.0.0.1:11080"
+              />
+            </Field>
+            <Field label="DNS" hint="自定义 DNS（空=默认）">
+              <input
+                className={inputCls}
+                value={editing.dns}
+                onChange={(e) => setField("dns", e.target.value)}
+              />
+            </Field>
+            <Field label="ECH" hint="ECH 域名（空=默认 cloudflare-ech.com）">
+              <input
+                className={inputCls}
+                value={editing.ech}
+                onChange={(e) => setField("ech", e.target.value)}
+              />
+            </Field>
+            <Field label="UDP 阻断端口" hint="如 443，多个用逗号分隔">
+              <input
+                className={inputCls}
+                value={editing.blockPorts}
+                onChange={(e) => setField("blockPorts", e.target.value)}
+                placeholder="443"
+              />
+            </Field>
+            <Field label="连接数" hint="每 IP 连接数">
+              <input
+                type="number"
+                min={1}
+                className={inputCls}
+                value={editing.connections}
+                onChange={(e) => setField("connections", Math.max(1, Number(e.target.value) || 1))}
+              />
+            </Field>
+            <Field label="优选 IP" hint="-ip CF 优选 IP/域名，逗号分隔（空=自动）">
+              <input
+                className={inputCls}
+                value={editing.dialIPs}
+                onChange={(e) => setField("dialIPs", e.target.value)}
+                placeholder="162.159.192.5,162.159.193.10"
+              />
+            </Field>
+            <Field label="IPv4 策略" hint="4=仅 IPv4，6=仅 IPv6，4,6 等=优先顺序">
+              <select
+                className={inputCls}
+                value={editing.ipStrategy}
+                onChange={(e) => setField("ipStrategy", e.target.value)}
+              >
+                {IP_STRATEGY_OPTIONS.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="DNS 缓存 TTL" hint="如 5m、1h">
+              <input
+                className={inputCls}
+                value={editing.dnsCacheTTL}
+                onChange={(e) => setField("dnsCacheTTL", e.target.value)}
+                placeholder="5m"
+              />
+            </Field>
+            <div className="flex flex-col gap-3 sm:col-span-2">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                    Insecure（跳过 TLS 证书校验）
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    自签名/私有 CA 服务器需开启
+                  </p>
+                </div>
+                <Toggle checked={editing.insecure} onChange={(v) => setField("insecure", v)} label="insecure" />
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                    Fallback（连接失败时回退直连）
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    服务器不可达时自动放行直连
+                  </p>
+                </div>
+                <Toggle checked={editing.fallback} onChange={(v) => setField("fallback", v)} label="fallback" />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <Button onClick={onSave} loading={busy} disabled={locked}>
+              <Save className="h-4 w-4" /> 保存配置
+            </Button>
+            <Button variant="secondary" onClick={() => setEditing(null)} disabled={busy}>
+              取消
+            </Button>
+          </div>
+          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+            配置保存到 profiles.json；激活配置需重启代理后生效。
+          </p>
+        </Card>
+      )}
 
       <Card title="外观">
         <div className="flex items-start gap-3">
@@ -223,176 +412,6 @@ export default function SettingsPage() {
           ))}
         </div>
       </Card>
-
-      <Card title="基本设置" action={demo ? <span className="text-xs text-slate-400">演示模式</span> : undefined}>
-        {cfg ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="监听地址" hint="代理监听 host:port">
-              <input
-                className={inputCls}
-                value={cfg.listen}
-                onChange={(e) => set("listen", e.target.value)}
-              />
-            </Field>
-            <Field label="规则文件" hint="rules.txt 路径（相对执行目录）">
-              <input
-                className={inputCls}
-                value={cfg.rulesPath}
-                onChange={(e) => set("rulesPath", e.target.value)}
-              />
-            </Field>
-            <Field label="GEO 目录" hint="geosite.dat / geoip-lite.dat 存放目录">
-              <input
-                className={inputCls}
-                value={cfg.geoDir}
-                onChange={(e) => set("geoDir", e.target.value)}
-              />
-            </Field>
-            <Field label="自动更新间隔（天）" hint="GEO 数据库自动检查更新">
-              <input
-                type="number"
-                min={0}
-                className={inputCls}
-                value={cfg.autoUpdateDays}
-                onChange={(e) => set("autoUpdateDays", Math.max(0, Number(e.target.value) || 0))}
-              />
-            </Field>
-            <Field label="GEO 仓库" hint="格式 owner/repo">
-              <input
-                className={inputCls}
-                value={cfg.geoRepo}
-                onChange={(e) => set("geoRepo", e.target.value)}
-              />
-            </Field>
-            <Field
-              label="下载加速前缀"
-              hint="GitHub 加速（如 https://gh-proxy.org/），置空关闭"
-            >
-              <input
-                className={inputCls}
-                value={cfg.downloadProxy}
-                onChange={(e) => set("downloadProxy", e.target.value)}
-                placeholder="https://gh-proxy.org/"
-              />
-            </Field>
-          </div>
-        ) : (
-          <p className="text-sm text-slate-500 dark:text-slate-400">加载中…</p>
-        )}
-
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <Button onClick={onSave} loading={busy} disabled={!cfg}>
-            <Save className="h-4 w-4" /> 保存配置
-          </Button>
-          <Button onClick={load} variant="secondary" disabled={!cfg}>
-            <RotateCcw className="h-4 w-4" /> 重置配置
-          </Button>
-          {notice && (
-            <span className="text-sm text-emerald-600 dark:text-emerald-400">{notice}</span>
-          )}
-          {error && <span className="text-sm text-red-600 dark:text-red-400">{error}</span>}
-        </div>
-        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-          配置写入执行目录下的 config.json；修改需重启生效（取消热加载）。
-        </p>
-      </Card>
-
-      <Card title="分应用代理">
-        <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
-          仅代理指定应用（白名单）或排除指定应用（黑名单）；默认全部应用走代理，与旧版一致。
-        </p>
-
-        <div className="grid grid-cols-3 gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800">
-          {PER_APP_MODES.map(({ value, label }) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => changePerAppMode(value)}
-              aria-pressed={perAppMode === value}
-              className={`flex items-center justify-center rounded-md px-2 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50 ${
-                perAppMode === value
-                  ? "bg-white text-orange-600 shadow-sm dark:bg-slate-700 dark:text-orange-400"
-                  : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-          {PER_APP_MODES.find((m) => m.value === perAppMode)?.hint}
-        </p>
-
-        {perAppMode !== "off" && (
-          <div className="mt-4">
-            <Button variant="secondary" onClick={() => setPickerOpen(true)}>
-              <ListFilter className="h-4 w-4" />
-              选择应用{perAppPackages.length > 0 ? `（已选 ${perAppPackages.length} 个）` : ""}
-            </Button>
-            {perAppPackages.length > 0 && (
-              <div className="mt-2 flex max-h-28 flex-wrap gap-1 overflow-y-auto">
-                {perAppPackages.map((pkg) => (
-                  <span
-                    key={pkg}
-                    className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                  >
-                    {pkg}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
-          ⚠ 本应用自身始终不进入代理列表（防路由死锁）
-        </p>
-
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button onClick={onSavePerApp} loading={perAppBusy}>
-            <RefreshCw className="h-4 w-4" /> 保存并重连
-          </Button>
-          {perAppNotice && (
-            <span className="text-sm text-emerald-600 dark:text-emerald-400">{perAppNotice}</span>
-          )}
-          {perAppError && (
-            <span className="text-sm text-red-600 dark:text-red-400">{perAppError}</span>
-          )}
-        </div>
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-          应用列表变更会短暂重连隧道，不影响 VPN 授权。
-        </p>
-      </Card>
-
-      <Card title="开机自启">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <Rocket className="mt-0.5 h-5 w-5 text-orange-500" />
-            <div>
-              <p className="text-sm font-medium">登录后自动启动</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                系统登录时自动运行 warp-gui（Windows 注册表 / macOS LaunchAgent / Linux autostart）
-              </p>
-            </div>
-          </div>
-          <Toggle
-            checked={autostart}
-            onChange={toggleAutostart}
-            disabled={autostartBusy}
-          />
-        </div>
-      </Card>
-
-      <PerAppPicker
-        open={pickerOpen}
-        selected={perAppPackages}
-        selfPackage={SELF_PACKAGE}
-        onClose={() => setPickerOpen(false)}
-        onConfirm={(pkgs) => {
-          setPerAppPackages(pkgs);
-          setPickerOpen(false);
-        }}
-      />
     </div>
   );
 }

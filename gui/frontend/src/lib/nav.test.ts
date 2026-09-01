@@ -2,11 +2,11 @@ import { describe, it, expect } from "vitest";
 import { NAV, TITLES } from "./nav";
 import type { PageKey } from "./nav";
 
-const EXPECTED_ORDER: PageKey[] = ["status", "rules", "geo", "scan", "settings", "logs"];
+const EXPECTED_ORDER: PageKey[] = ["status", "rules", "geo", "profiles", "logs"];
 
 describe("NAV", () => {
-  it("has exactly 6 entries", () => {
-    expect(NAV).toHaveLength(6);
+  it("has exactly 5 entries", () => {
+    expect(NAV).toHaveLength(5);
   });
 
   it("has unique keys", () => {
@@ -14,7 +14,7 @@ describe("NAV", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("keeps the fixed order: status, rules, geo, scan, settings, logs", () => {
+  it("keeps the fixed order: status, rules, geo, profiles, logs", () => {
     expect(NAV.map((n) => n.key)).toEqual(EXPECTED_ORDER);
   });
 
