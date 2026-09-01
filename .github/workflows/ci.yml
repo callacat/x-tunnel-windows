@@ -40,6 +40,127 @@ jobs:
           go vet ./...
           go test ./... -race -count=1
 
+  # M2 数据面 spike：windows runner 上构建 sidecar，真实拉起进程验证
+  # 连接生命周期（ready/channels）+ 双监听数据面（SOCKS5/HTTP 代理）+
+  # WinINET 系统代理注册表写入（GUI sysproxy 包同款三段值）。
+  data-plane-spike:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: gui/go.mod
+          cache: true
+          cache-dependency-path: gui/go.sum
+      - name: Build sidecar (callacat/x-tunnel @ feat/route-engine)
+        shell: bash
+        run: |
+          git clone --depth 1 --branch feat/route-engine https://github.com/callacat/x-tunnel.git external/x-tunnel
+          go build -C external/x-tunnel -trimpath -o /tmp/x-tunnel.exe ./cmd/x-tunnel
+      - name: Run data-plane spike
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $work = "$env:RUNNER_TEMP/spike"
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $ready = "$work/ready.json"
+          $tokenFile = "$work/control-token"
+
+          # 1) 服务端（本机回环 ws，数据面闭环不出 runner）
+          @'
+          {
+            "listen": "ws://127.0.0.1:18080/tunnel",
+            "token": "ci-spike-token",
+            "cidr": "127.0.0.1/32"
+          }
+          '@ | Set-Content "$work/server.json"
+          $srv = Start-Process -FilePath /tmp/x-tunnel.exe -ArgumentList "-config","$work/server.json" -PassThru -NoNewWindow -RedirectStandardOutput "$work/server.log" -RedirectStandardError "$work/server.err"
+
+          # 2) 客户端 sidecar（GUI 同款 argv：config + control 随机端口 + ready-file + token-file；双监听由 config listen 提供）
+          @'
+          {
+            "listen": "socks5://127.0.0.1:11080,http://127.0.0.1:11081",
+            "forward": "ws://127.0.0.1:18080/tunnel",
+            "token": "ci-spike-token",
+            "connections": 1,
+            "block": "443",
+            "fallback": true,
+            "route_enabled": false
+          }
+          '@ | Set-Content "$work/profile.json"
+          $cli = Start-Process -FilePath /tmp/x-tunnel.exe -ArgumentList "-config","$work/profile.json","-control","127.0.0.1:0","-ready-file",$ready,"-control-token-file",$tokenFile -PassThru -NoNewWindow -RedirectStandardOutput "$work/client.log" -RedirectStandardError "$work/client.err"
+
+          try {
+            # 3) ready 轮询（GUI 同款 10s）
+            $readyInfo = $null
+            foreach ($i in 1..50) {
+              if ($cli.HasExited) { Get-Content "$work/client.log","$work/client.err" -ErrorAction SilentlyContinue | Select-Object -Last 10; throw "sidecar 启动即退出" }
+              if ((Test-Path $ready) -and ((Get-Item $ready).Length -gt 0)) { $readyInfo = Get-Content $ready -Raw | ConvertFrom-Json; break }
+              Start-Sleep -Milliseconds 200
+            }
+            if (-not $readyInfo) { throw "ready 超时（10s）" }
+            Write-Host "✓ ready: pid=$($readyInfo.pid) control=$($readyInfo.control_url)"
+            $token = (Get-Content $tokenFile -Raw).Trim()
+
+            # 4) 双监听端口探测
+            foreach ($port in 11080, 11081) {
+              $c = New-Object Net.Sockets.TcpClient
+              $c.Connect("127.0.0.1", $port)
+              if (-not $c.Connected) { throw "端口 $port 未监听" }
+              $c.Close()
+            }
+            Write-Host "✓ 双监听 11080(SOCKS5)/11081(HTTP) 在线"
+
+            # 5) channels up（GUI 同款 15s 等待）
+            $hdr = @{ Authorization = "Bearer $token" }
+            $up = $false
+            foreach ($i in 1..30) {
+              try {
+                $st = Invoke-RestMethod -Uri "$($readyInfo.control_url)/v1/status" -Headers $hdr -TimeoutSec 3
+                if ($st.client.channels | Where-Object { $_.up }) { $up = $true; break }
+              } catch {}
+              Start-Sleep -Milliseconds 500
+            }
+            if (-not $up) { throw "smux 通道未就绪（15s）" }
+            Write-Host "✓ smux 通道 up"
+
+            # 6) 数据面：HTTP 代理 CONNECT → 目标 204（WinINET 同路语义）
+            $r = Invoke-WebRequest -Uri "http://cp.cloudflare.com/generate_204" -Proxy "http://127.0.0.1:11081" -UseBasicParsing -TimeoutSec 15 -SkipHttpErrorCheck
+            if ($r.StatusCode -ne 204) { throw "HTTP 代理数据面失败: $($r.StatusCode)" }
+            Write-Host "✓ HTTP 代理数据面（CONNECT 域名透传）→ 204"
+
+            # 7) 数据面：SOCKS5（PowerShell 无内建 socks 客户端，用 curl.exe）
+            $out = & curl.exe -s -o NUL -w "%{http_code}" --max-time 15 -x "socks5h://127.0.0.1:11080" "http://cp.cloudflare.com/generate_204"
+            if ($out -ne "204") { throw "SOCKS5 数据面失败: $out" }
+            Write-Host "✓ SOCKS5 数据面（socks5h 远程解析）→ 204"
+
+            # 8) WinINET 系统代理注册表：GUI sysproxy 包同款三段值写入/读取/清除
+            $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+            $httpEP = "127.0.0.1:11081"; $socksEP = "127.0.0.1:11080"
+            Set-ItemProperty $key -Name ProxyServer -Value "http=$httpEP;https=$httpEP;socks=$socksEP"
+            Set-ItemProperty $key -Name ProxyOverride -Value "<local>;localhost"
+            Set-ItemProperty $key -Name ProxyEnable -Value 1 -Type DWord
+            $written = (Get-ItemProperty $key).ProxyServer
+            if ($written -ne "http=$httpEP;https=$httpEP;socks=$socksEP") { throw "注册表写入校验失败: $written" }
+            $enabled = (Get-ItemProperty $key).ProxyEnable
+            if ($enabled -ne 1) { throw "ProxyEnable 应为 1" }
+            Write-Host "✓ WinINET 注册表三段写入/读回一致（http/https→11081, socks→11080）"
+
+            # 9) 流量统计（control API）
+            $stats = Invoke-RestMethod -Uri "$($readyInfo.control_url)/v1/stats" -Headers $hdr -TimeoutSec 3
+            if ($stats.traffic.bytes_sent -le 0) { throw "流量统计未增量" }
+            Write-Host "✓ 流量统计增量: sent=$($stats.traffic.bytes_sent) recv=$($stats.traffic.bytes_received)"
+
+            Write-Host "=== data-plane-spike 全部通过 ==="
+          } finally {
+            # 10) 清理：还原系统代理 + 结束进程
+            Set-ItemProperty $key -Name ProxyEnable -Value 0 -Type DWord -ErrorAction SilentlyContinue
+            foreach ($p in $cli, $srv) {
+              if ($p -and -not $p.HasExited) { try { Invoke-RestMethod -Uri "$($readyInfo.control_url)/v1/runtime/stop" -Headers @{ Authorization = "Bearer $token" } -Method Post -TimeoutSec 2 } catch {}; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+            }
+          }
+
   frontend-build:
     runs-on: ubuntu-latest
     defaults:

@@ -410,11 +410,11 @@ func (s *Service) SetSystemProxy(enabled bool) error {
 		if err != nil || p == nil {
 			return errors.New("无激活配置")
 		}
-		addr, err := sysproxyAddrFromListen(p.LocalListen)
+		httpAddr, socksAddr, err := sysproxyTargetsFromListen(p.LocalListen)
 		if err != nil {
 			return err
 		}
-		return sysproxy.Set(addr, true)
+		return sysproxy.SetDual(httpAddr, socksAddr, true)
 	}
 	return sysproxy.Set("", false)
 }
@@ -425,21 +425,12 @@ func (s *Service) GetSystemProxyEnabled() bool {
 	if err != nil || p == nil {
 		return false
 	}
-	addr, err := sysproxyAddrFromListen(p.LocalListen)
+	httpAddr, socksAddr, err := sysproxyTargetsFromListen(p.LocalListen)
 	if err != nil {
 		return false
 	}
-	on, _ := sysproxy.Enabled(addr)
+	on, _ := sysproxy.EnabledDual(httpAddr, socksAddr)
 	return on
-}
-
-// sysproxyAddrFromListen 把 socks5://127.0.0.1:11080 转成 host:port。
-func sysproxyAddrFromListen(listen string) (string, error) {
-	s := strings.TrimPrefix(listen, "socks5://")
-	if s == "" || !strings.Contains(s, ":") {
-		return "", fmt.Errorf("监听地址缺少端口：%s", listen)
-	}
-	return s, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -490,9 +481,9 @@ func (s *Service) sysProxyOnForActive() (bool, error) {
 	if err != nil || p == nil {
 		return false, err
 	}
-	addr, err := sysproxyAddrFromListen(p.LocalListen)
+	httpAddr, socksAddr, err := sysproxyTargetsFromListen(p.LocalListen)
 	if err != nil {
 		return false, err
 	}
-	return sysproxy.Enabled(addr)
+	return sysproxy.EnabledDual(httpAddr, socksAddr)
 }

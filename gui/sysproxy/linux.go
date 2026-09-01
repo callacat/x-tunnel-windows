@@ -13,7 +13,11 @@ import (
 // mode=none（保留已填地址便于恢复）。非 GNOME 桌面没有 gsettings 或没有
 // org.gnome.system.proxy schema，此时返回明确的错误并提示替代方案，而不是
 // 静默失败。
-func set(host, port string, enabled bool) error {
+func set(httpHost, httpPort, socksHost, socksPort string, enabled bool) error {
+	_ = socksHost // 非 Windows 平台单代理语义，socks 段忽略
+	_, _ = socksPort, httpHost
+	_ = httpPort
+	host, port := httpHost, httpPort
 	if _, err := exec.LookPath("gsettings"); err != nil {
 		return fmt.Errorf("Linux 桌面代理需 gsettings（GNOME）；未找到 gsettings，" +
 			"可改用环境变量 http_proxy/https_proxy/all_proxy 或手动配置系统代理")

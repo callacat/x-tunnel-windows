@@ -13,7 +13,11 @@ import (
 // （-setproxybypassdomains），本机服务（如 WebSSH 网关）直连不经代理。
 // SOCKS 防火墙代理（-setsocksfirewallproxy）不动——它只影响需要显式 SOCKS
 // 的程序，而 HTTP(S) 代理设置已覆盖绝大多数系统代理消费方。
-func set(host, port string, enabled bool) error {
+func set(httpHost, httpPort, socksHost, socksPort string, enabled bool) error {
+	_ = socksHost // 非 Windows 平台单代理语义，socks 段忽略
+	_, _ = socksPort, httpHost
+	_ = httpPort
+	host, port := httpHost, httpPort
 	services, err := networkServices()
 	if err != nil {
 		return err

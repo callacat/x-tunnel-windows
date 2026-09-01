@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -113,7 +115,7 @@ func synthesizeFileConfig(p XTunnelProfile, geoDir, rulesPath string, routeEnabl
 	}
 	str("forward", strings.TrimSpace(p.ServerURL))
 	str("token", p.Token)
-	str("listen", p.LocalListen)
+	str("listen", appendHTTPListen(p.LocalListen))
 	str("cidr", p.CIDR)
 	str("dns", p.DNS)
 	str("ech", p.ECH)
@@ -136,4 +138,61 @@ func synthesizeFileConfig(p XTunnelProfile, geoDir, rulesPath string, routeEnabl
 		fc["route_enabled"] = true
 	}
 	return fc
+}
+
+// httpListenDelta 是系统代理 HTTP 监听相对 SOCKS5 监听的端口偏移。
+// sidecar 同进程双监听：socks5://127.0.0.1:11080 + http://127.0.0.1:11081。
+const httpListenDelta = 1
+
+// appendHTTPListen 在 socks5 监听上追加同机 +1 端口的 HTTP 代理监听
+// （x-tunnel -l 支持逗号分隔多监听）。系统代理注册表的 http=/https= 段
+// 指向该 HTTP 端口（WinINET 完整语义：CONNECT 域名透传=服务端远程解析），
+// socks= 段指向原 SOCKS5 端口。仅回环监听追加；已是双监听则原样返回。
+func appendHTTPListen(socksListen string) string {
+	const prefix = "socks5://"
+	s := strings.TrimSpace(socksListen)
+	if !strings.HasPrefix(s, prefix) {
+		return socksListen
+	}
+	hostPort := s[len(prefix):]
+	i := strings.LastIndex(hostPort, ":")
+	if i < 0 {
+		return socksListen
+	}
+	host, portStr := hostPort[:i], hostPort[i+1:]
+	if host != "127.0.0.1" && host != "localhost" {
+		return socksListen // 系统代理只对回环监听有意义
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port <= 0 || port+httpListenDelta > 65535 {
+		return socksListen
+	}
+	return s + ",http://" + host + ":" + strconv.Itoa(port+httpListenDelta)
+}
+
+// sysproxyTargetsFromListen 返回系统代理注册表的两个地址：
+// HTTP 代理（http=/https= 段用）与 SOCKS5（socks= 段用），均为 host:port。
+func sysproxyTargetsFromListen(socksListen string) (httpAddr, socksAddr string, err error) {
+	const prefix = "socks5://"
+	s := strings.TrimSpace(socksListen)
+	if !strings.HasPrefix(s, prefix) {
+		return "", "", fmt.Errorf("监听地址必须是 socks5:// 格式：%s", socksListen)
+	}
+	hostPort := s[len(prefix):]
+	i := strings.LastIndex(hostPort, ":")
+	if i < 0 {
+		return "", "", fmt.Errorf("监听地址缺少端口：%s", socksListen)
+	}
+	host, portStr := hostPort[:i], hostPort[i+1:]
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port <= 0 {
+		return "", "", fmt.Errorf("监听端口非法：%s", socksListen)
+	}
+	socksAddr = net.JoinHostPort(host, portStr)
+	if host != "127.0.0.1" && host != "localhost" {
+		// 非回环监听：无 HTTP 伴生端口，三段都指向 SOCKS（少见配置，尽力兜底）。
+		return socksAddr, socksAddr, nil
+	}
+	httpAddr = net.JoinHostPort(host, strconv.Itoa(port+httpListenDelta))
+	return httpAddr, socksAddr, nil
 }

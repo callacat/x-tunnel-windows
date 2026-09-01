@@ -13,7 +13,9 @@ import (
 // 启用时先写 ProxyServer、ProxyOverride（本机/局域网旁路）再置
 // ProxyEnable=1；禁用时只清 ProxyEnable（保留 ProxyServer 便于用户手动
 // 恢复）。只改当前用户，不需要管理员权限。
-func set(host, port string, enabled bool) error {
+// httpHost:httpPort 服务 http=/https= 段（x-tunnel HTTP 代理监听），
+// socksHost:socksPort 服务 socks= 段（SOCKS5 监听）；二者可为同一地址。
+func set(httpHost, httpPort, socksHost, socksPort string, enabled bool) error {
 	k, err := registry.OpenKey(registry.CURRENT_USER,
 		`Software\Microsoft\Windows\CurrentVersion\Internet Settings`,
 		registry.SET_VALUE)
@@ -29,11 +31,12 @@ func set(host, port string, enabled bool) error {
 		return nil
 	}
 
-	// Windows 的 ProxyServer 值对每种协议单独给出地址；混合代理同端口服务
-	// HTTP/HTTPS/SOCKS5，三种都指向同一地址。JoinHostPort 保证 IPv6 字面量
-	// 带方括号，否则 [::1]:40000 会被解析成非法的 host:port。
-	ep := net.JoinHostPort(host, port)
-	proxyServer := fmt.Sprintf("http=%s;https=%s;socks=%s", ep, ep, ep)
+	// Windows 的 ProxyServer 值对每种协议单独给出地址。http/https 走 HTTP
+	// 代理端口（CONNECT 域名透传=服务端远程解析，WinINET 完整语义），socks
+	// 段指向 SOCKS5 端口兜底。JoinHostPort 保证 IPv6 字面量带方括号。
+	httpEP := net.JoinHostPort(httpHost, httpPort)
+	socksEP := net.JoinHostPort(socksHost, socksPort)
+	proxyServer := fmt.Sprintf("http=%s;https=%s;socks=%s", httpEP, httpEP, socksEP)
 	if err := k.SetStringValue("ProxyServer", proxyServer); err != nil {
 		return fmt.Errorf("写入 ProxyServer 失败：%w", err)
 	}
