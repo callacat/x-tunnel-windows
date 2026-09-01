@@ -19,16 +19,16 @@
         "FileSubType": "00"
     },
     "StringFileInfo": {
-        "Comments": "Cloudflare WARP client GUI (Wails v3)",
-        "CompanyName": "warp-go",
-        "FileDescription": "warp-go GUI - Cloudflare WARP client",
+        "Comments": "x-tunnel Windows GUI client (Wails v3)",
+        "CompanyName": "x-tunnel",
+        "FileDescription": "x-tunnel Windows GUI client",
         "FileVersion": "0.0.0.0",
-        "InternalName": "warp-gui",
+        "InternalName": "x-tunnel-windows-gui",
         "LegalCopyright": "",
         "LegalTrademarks": "",
-        "OriginalFilename": "warp-gui.exe",
+        "OriginalFilename": "x-tunnel-windows.exe",
         "PrivateBuild": "",
-        "ProductName": "warp-go GUI",
+        "ProductName": "x-tunnel-windows",
         "ProductVersion": "0.0.0.0",
         "SpecialBuild": ""
     },
