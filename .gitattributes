@@ -1,0 +1,5 @@
+# 强制 LF：windows runner autocrlf 会把源码转 CRLF，破坏 gofmt/编译稳定性
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.exe binary
