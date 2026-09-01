@@ -1,0 +1,42 @@
+name: CI
+# 门禁：Go lint/test（windows runner，GUI 目标平台）+ 前端 build/test
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  go-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: gui/go.mod
+          cache: true
+          cache-dependency-path: gui/go.sum
+      - name: gofmt / vet / test
+        working-directory: gui
+        shell: pwsh
+        run: |
+          $fmt = gofmt -l .
+          if ($fmt) { Write-Host "gofmt 未格式化文件:`n$fmt"; exit 1 }
+          go vet ./...
+          go test ./... -race -count=1
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gui/frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gui/frontend/package-lock.json
+      - run: npm ci
+      - run: npm test -- --run
+      - run: npm run build

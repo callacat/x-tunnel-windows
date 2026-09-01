@@ -1,0 +1,17 @@
+# Go
+*.exe
+*.exe~
+bin/
+dist/
+sidecar.log
+ready.json
+
+# Node
+node_modules/
+gui/frontend/dist/
+
+# 运行时
+config.json
+profiles.json
+geo/
+*.log

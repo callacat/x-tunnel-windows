@@ -1,0 +1,99 @@
+name: Release
+# tag 触发：构建 GUI exe（ldflags 注入版本）+ sidecar x-tunnel.exe（feat/route-engine）
+# 打包绿色 zip（两二进制+README+默认规则）→ GitHub Release（zip+SHA256SUMS）。
+# 版本单源：tag（vX.Y.Z）→ XTUNNEL_WIN_VERSION_NAME 注入 GUI version.ldflags。
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag, for example v0.2.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: "1.26.5"
+  NODE_VERSION: "22"
+  CORE_REPO: callacat/x-tunnel
+  CORE_REF: feat/route-engine
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Checkout GUI repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag
+        shell: bash
+        run: |
+          TAG="${RELEASE_TAG}"
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must look like v1.2.3: ${TAG}" >&2
+            exit 1
+          fi
+          echo "XTUNNEL_WIN_VERSION_NAME=${TAG#v}" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: gui/frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: gui/frontend
+        run: |
+          npm ci
+          npm test -- --run
+          npm run build
+
+      - name: Build GUI exe
+        working-directory: gui
+        shell: pwsh
+        env:
+          XTUNNEL_WIN_VERSION_NAME: ${{ env.XTUNNEL_WIN_VERSION_NAME }}
+        run: |
+          go build -trimpath -ldflags "-s -w -X main.version=$env:XTUNNEL_WIN_VERSION_NAME" -o ../dist/x-tunnel-windows.exe .
+
+      - name: Build sidecar x-tunnel.exe
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch "$env:CORE_REF" "https://github.com/$env:CORE_REPO.git" external/x-tunnel
+          go build -C external/x-tunnel -trimpath -ldflags "-s -w" -o ../../../dist/x-tunnel.exe ./cmd/x-tunnel
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $tag = "$env:RELEASE_TAG"
+          Copy-Item scripts/README-dist.md dist/README.md
+          Copy-Item scripts/default-rules.txt dist/rules.txt
+          Compress-Archive -Path dist/x-tunnel-windows.exe, dist/x-tunnel.exe, dist/README.md, dist/rules.txt -DestinationPath "dist/x-tunnel-windows-${tag}-windows-amd64.zip" -Force
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - name: SHA256SUMS
+        shell: bash
+        run: |
+          cd dist
+          sha256sum x-tunnel-windows-${RELEASE_TAG}-windows-amd64.zip > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            dist/x-tunnel-windows-*-windows-amd64.zip
+            dist/SHA256SUMS
+          generate_release_notes: true

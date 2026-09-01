@@ -1,0 +1,7 @@
+# x-tunnel 路由规则（每行"行为,条件"；# 开头为注释）
+# 行为：proxy 走隧道 / direct 直连 / reject 拦截
+# 条件：domain 后缀 / full 精确 / cidr 网段 / geosite: 分类 / geoip: 国家码
+direct,cn
+direct,geosite:cn
+direct,geoip:private
+proxy,geosite:geolocation-!cn
