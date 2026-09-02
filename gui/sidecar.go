@@ -78,6 +78,11 @@ func (m *sidecarManager) Start(cfgPath string, extraArgs []string, readyTimeout 
 		return nil
 	}
 	_ = os.Remove(m.readyFile)
+	// control 鉴权：显式指定 token 文件（GUI 侧可读）。core 无条件生成
+	// 64hex token 强制 Bearer 鉴权；不传则 token 落系统临时目录拿不到，
+	// /v1/status 等端点全部 401（状态轮询全瞎）。
+	tokenPath := filepath.Join(m.workDir, "control-token")
+	_ = os.Remove(tokenPath)
 	// control 端口固定用随机（-control 127.0.0.1:0），实际地址由 ready.json 回报，
 	// 避免与旧实例/其他程序冲突。
 	args := []string{
@@ -85,6 +90,7 @@ func (m *sidecarManager) Start(cfgPath string, extraArgs []string, readyTimeout 
 		"-l", m.listen,
 		"-control", "127.0.0.1:0",
 		"-ready-file", m.readyFile,
+		"-control-token-file", tokenPath,
 	}
 	args = append(args, extraArgs...)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -131,12 +137,22 @@ func (m *sidecarManager) Start(cfgPath string, extraArgs []string, readyTimeout 
 	deadline := time.Now().Add(readyTimeout)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(m.readyFile); err == nil {
+			m.readControlToken(tokenPath)
 			m.state = "running"
 			return nil
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
 	return nil
+}
+
+// readControlToken 读 control token 文件（core 写 hex token + "\n"，strip 尾换行）。
+func (m *sidecarManager) readControlToken(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	m.controlToken = strings.TrimRight(string(data), "\r\n")
 }
 
 // Stop 停止 sidecar（幂等；Windows 无 SIGTERM，直接 Kill——sidecar 无需优雅
@@ -211,7 +227,12 @@ func (m *sidecarManager) controlStatus() *ctlStatus {
 		return nil
 	}
 	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(ready.ControlURL + "/v1/status")
+	req, err := http.NewRequest(http.MethodGet, ready.ControlURL+"/v1/status", nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Authorization", "Bearer "+m.controlToken)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil
 	}
@@ -229,13 +250,19 @@ func (m *sidecarManager) BinExists() bool {
 	return err == nil
 }
 
-// reloadRoute 触发 sidecar 规则热重载（control POST /v1/route/reload）。
+// reloadRoute 触发 sidecar 规则热重载（control POST /v1/rules/reload，
+// Bearer 鉴权——端点名与 core internal/app/control.go 路由表一致）。
 func (m *sidecarManager) reloadRoute() error {
 	url := m.controlBaseURL()
 	if url == "" {
 		return errors.New("sidecar 未运行")
 	}
-	resp, err := http.Post(url+"/v1/route/reload", "application/json", nil)
+	req, err := http.NewRequest(http.MethodPost, url+"/v1/rules/reload", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+m.controlToken)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
