@@ -87,10 +87,15 @@ func (m *sidecarManager) Start(cfgPath string, extraArgs []string, readyTimeout 
 	// 避免与旧实例/其他程序冲突。
 	args := []string{
 		"-config", cfgPath,
-		"-l", m.listen,
 		"-control", "127.0.0.1:0",
 		"-ready-file", m.readyFile,
 		"-control-token-file", tokenPath,
+	}
+	// listen 只在显式指定时才传 -l：core 的合并规则是「命令行出现的 flag
+	// 覆盖 config」（applyStringConfig + flag.Visit），空串 -l 也会顶掉
+	// config 里的双监听（socks5+http）→ 系统代理 HTTP 段失效。
+	if m.listen != "" {
+		args = append(args, "-l", m.listen)
 	}
 	args = append(args, extraArgs...)
 	ctx, cancel := context.WithCancel(context.Background())

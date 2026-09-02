@@ -8,6 +8,9 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+const runKeyPath = `Software\Microsoft\Windows\CurrentVersion\Run`
+const autostartValueName = "x-tunnel-windows"
+
 func setAutostartWindows(enabled bool) error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE|registry.QUERY_VALUE)
 	if err != nil {

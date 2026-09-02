@@ -30,7 +30,7 @@ type Status struct {
 	StartedAt    string `json:"started_at"`
 	SysProxyOn   bool   `json:"sys_proxy_on"`
 	InitDone     bool   `json:"init_done"`
-	SidecarOK    bool   `json:"sidecar_ok"`  // x-tunnel.exe 在位
+	SidecarOK    bool   `json:"sidecar_ok"`  // sidecar 二进制在位
 	ActiveName   string `json:"active_name"` // 当前激活配置名
 	Configured   bool   `json:"configured"`  // 已配置服务器
 	RouteEnabled bool   `json:"route_enabled,omitempty"`
@@ -70,7 +70,7 @@ func newService() *Service {
 	initLogging()
 	_ = os.MkdirAll(dataDir(), 0o755)
 	svc.sidecar = newSidecarManager(
-		filepath.Join(execDir(), "x-tunnel.exe"),
+		filepath.Join(execDir(), sidecarBinName()),
 		dataDir(),
 		"", // listen 由激活配置决定
 	)
@@ -78,6 +78,17 @@ func newService() *Service {
 	go svc.InitDefaults()
 	return svc
 }
+
+// sidecarBinName 返回 sidecar 二进制文件名（按平台：Windows 带 .exe）。
+func sidecarBinName() string {
+	if runtime.GOOS == "windows" {
+		return "x-tunnel.exe"
+	}
+	return "x-tunnel"
+}
+
+// sidecarDisplayName 前端提示用的 sidecar 名（含平台后缀）。
+func sidecarDisplayName() string { return sidecarBinName() }
 
 // execDir 返回 GUI 可执行文件所在目录（x-tunnel.exe 同目录部署）。
 func execDir() string {
@@ -129,7 +140,7 @@ func (s *Service) GetStatus() Status {
 		st.LastError = startErr.Error()
 	}
 	if !st.SidecarOK {
-		st.LastError = "未找到 x-tunnel.exe（应与 GUI 同目录部署）"
+		st.LastError = "未找到 " + sidecarDisplayName() + "（应与 GUI 同目录部署）"
 	}
 
 	// 激活配置信息
@@ -182,7 +193,7 @@ func (s *Service) Start() error {
 		return fmt.Errorf("配置无效：%w", err)
 	}
 	if !s.sidecar.BinExists() {
-		return errors.New("未找到 x-tunnel.exe（应与 GUI 同目录部署）")
+		return errors.New("未找到 " + sidecarDisplayName() + "（应与 GUI 同目录部署）")
 	}
 
 	// 合成 config.json（geo/rules 路径锚定 dataDir）

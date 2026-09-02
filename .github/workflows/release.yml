@@ -1,7 +1,9 @@
 name: Release
-# tag 触发：构建 GUI exe（ldflags 注入版本）+ sidecar x-tunnel.exe（feat/route-engine）
-# 打包绿色 zip（两二进制+README+默认规则）→ GitHub Release（zip+SHA256SUMS）。
+# tag 触发：三平台矩阵（windows-amd64 / linux-amd64 / macos-arm64）构建 GUI + sidecar
+# GUI（go build gui/，ldflags 注入 main.version）+ sidecar（git clone callacat/x-tunnel @ feat/route-engine 后 go build ./cmd/x-tunnel）
+# 每平台打包 zip（GUI+sidecar+README+默认规则）上传 artifact → 汇总 job 生成总 SHA256SUMS → GitHub Release
 # 版本单源：tag（vX.Y.Z）→ XTUNNEL_WIN_VERSION_NAME 注入 GUI version.ldflags。
+# Linux 端 GUI 是 Wails v3，需 CGO + gtk4/webkitgtk-6.0/libsoup-3.0 开发库，构建前 apt 安装。
 on:
   push:
     tags: ["v*.*.*"]
@@ -21,8 +23,24 @@ env:
   CORE_REF: feat/route-engine
 
 jobs:
-  release:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false # 单平台失败不取消其余平台，各自产出 artifact
+      matrix:
+        include:
+          - platform: windows-amd64
+            runner: windows-latest
+            gui_name: x-tunnel-windows.exe
+            sidecar_name: x-tunnel.exe
+          - platform: linux-amd64
+            runner: ubuntu-latest
+            gui_name: x-tunnel-windows
+            sidecar_name: x-tunnel
+          - platform: macos-arm64
+            runner: macos-latest
+            gui_name: x-tunnel-windows
+            sidecar_name: x-tunnel
+    runs-on: ${{ matrix.runner }}
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
@@ -51,6 +69,15 @@ jobs:
           cache: npm
           cache-dependency-path: gui/frontend/package-lock.json
 
+      # Wails v3 Linux 端依赖 GTK4 + webkitgtk-6.0 + libsoup3 开发库
+      # ubuntu-latest=24.04：webkitgtk-6.0 的 pkg-config 对应 libwebkit2gtk-4.1-dev
+      - name: Install Linux GUI dependencies (Wails v3)
+        if: matrix.platform == 'linux-amd64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgtk-4-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
+
+      # 前端构建三平台都要（GUI go:embed frontend/dist），放矩阵内每平台跑一次，简单可靠
       - name: Build frontend
         working-directory: gui/frontend
         run: |
@@ -58,21 +85,22 @@ jobs:
           npm test -- --run
           npm run build
 
-      - name: Build GUI exe
-        working-directory: gui
-        shell: pwsh
+      # GUI 构建命令三平台统一：-C gui 后 -o ../dist/ 相对 gui/ 落到仓库根 dist/
+      # CGO_ENABLED=1：Wails v3 在 linux/macos 需要 cgo，windows 无 cgo 导入不受影响
+      - name: Build GUI binary
         env:
-          XTUNNEL_WIN_VERSION_NAME: ${{ env.XTUNNEL_WIN_VERSION_NAME }}
+          CGO_ENABLED: "1"
+          VERSION: ${{ env.XTUNNEL_WIN_VERSION_NAME }}
         run: |
-          go build -trimpath -ldflags "-s -w -X main.version=$env:XTUNNEL_WIN_VERSION_NAME" -o ../dist/x-tunnel-windows.exe .
+          go build -C gui -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o ../dist/${{ matrix.gui_name }} .
 
-      - name: Build sidecar x-tunnel.exe
-        shell: pwsh
+      - name: Build sidecar x-tunnel
         run: |
-          git clone --depth 1 --branch "$env:CORE_REF" "https://github.com/$env:CORE_REPO.git" external/x-tunnel
-          go build -C external/x-tunnel -trimpath -ldflags "-s -w" -o ../../../dist/x-tunnel.exe ./cmd/x-tunnel
+          git clone --depth 1 --branch "${{ env.CORE_REF }}" "https://github.com/${{ env.CORE_REPO }}.git" external/x-tunnel
+          go build -C external/x-tunnel -trimpath -ldflags "-s -w" -o "${{ github.workspace }}/dist/${{ matrix.sidecar_name }}" ./cmd/x-tunnel
 
-      - name: Package zip
+      - name: Package zip (Windows)
+        if: matrix.platform == 'windows-amd64'
         shell: pwsh
         run: |
           $tag = "$env:RELEASE_TAG"
@@ -81,11 +109,39 @@ jobs:
           Compress-Archive -Path dist/x-tunnel-windows.exe, dist/x-tunnel.exe, dist/README.md, dist/rules.txt -DestinationPath "dist/x-tunnel-windows-${tag}-windows-amd64.zip" -Force
           Get-ChildItem dist | Format-Table Name, Length
 
-      - name: SHA256SUMS
-        shell: bash
+      # Linux/macOS 用 python3 -m zipfile 打包（ubuntu 自带 python3、macOS 自带，避免装 zip）
+      - name: Package zip (Linux/macOS)
+        if: matrix.platform != 'windows-amd64'
         run: |
+          cp scripts/README-dist.md dist/README.md
+          cp scripts/default-rules.txt dist/rules.txt
           cd dist
-          sha256sum x-tunnel-windows-${RELEASE_TAG}-windows-amd64.zip > SHA256SUMS
+          python3 -m zipfile -c "x-tunnel-windows-${RELEASE_TAG}-${{ matrix.platform }}.zip" x-tunnel-windows x-tunnel README.md rules.txt
+          ls -la
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: x-tunnel-${{ matrix.platform }}
+          path: dist/x-tunnel-windows-*.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Download all platform zips
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd release-assets
+          sha256sum *.zip > SHA256SUMS
           cat SHA256SUMS
 
       - name: Upload Release
@@ -94,6 +150,6 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
-            dist/x-tunnel-windows-*-windows-amd64.zip
-            dist/SHA256SUMS
+            release-assets/*.zip
+            release-assets/SHA256SUMS
           generate_release_notes: true

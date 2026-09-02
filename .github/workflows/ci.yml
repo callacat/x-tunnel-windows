@@ -180,3 +180,33 @@ jobs:
       - run: npm ci
       - run: npm test -- --run
       - run: npm run build
+
+  # 全平台门禁：linux GUI 编译（Wails gtk4/webkitgtk CGO）——防平台专属改动
+  # 只被 windows runner 验证、linux/darwin 合入即炸。darwin 需 macOS SDK，
+  # 由 release 矩阵的 macos job 兜底，CI 不重复。
+  linux-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: gui/go.mod
+          cache: true
+          cache-dependency-path: gui/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gui/frontend/package-lock.json
+      - name: Build frontend (go:embed 依赖 dist/)
+        working-directory: gui/frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Install Wails Linux deps (gtk4/webkitgtk/libsoup)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
+      - name: Build GUI (linux amd64)
+        working-directory: gui
+        run: go build -trimpath ./...
