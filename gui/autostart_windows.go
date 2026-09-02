@@ -11,7 +11,7 @@ import (
 const runKeyPath = `Software\Microsoft\Windows\CurrentVersion\Run`
 const autostartValueName = "x-tunnel-windows"
 
-func setAutostartWindows(enabled bool) error {
+func setAutostart(enabled bool) error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE|registry.QUERY_VALUE)
 	if err != nil {
 		return err
@@ -23,7 +23,7 @@ func setAutostartWindows(enabled bool) error {
 	return k.DeleteValue(autostartValueName)
 }
 
-func autostartEnabledWindows() bool {
+func autostartEnabled() bool {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.QUERY_VALUE)
 	if err != nil {
 		return false
