@@ -33,7 +33,7 @@ jobs:
             gui_name: x-tunnel-windows.exe
             sidecar_name: x-tunnel.exe
           - platform: linux-amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             gui_name: x-tunnel-windows
             sidecar_name: x-tunnel
           - platform: macos-arm64
@@ -70,12 +70,13 @@ jobs:
           cache-dependency-path: gui/frontend/package-lock.json
 
       # Wails v3 Linux 端依赖 GTK4 + webkitgtk-6.0 + libsoup3 开发库
-      # ubuntu-latest=24.04：webkitgtk-6.0 的 pkg-config 对应 libwebkit2gtk-4.1-dev
+      # 必须用 ubuntu-24.04：webkitgtk-6.0.pc（GTK4 同代 WebKitGTK）仅 24.04+
+      # 提供（包名 libwebkitgtk-6.0-dev）；22.04 只有 4.x 包（libwebkit2gtk-4.1-dev）
       - name: Install Linux GUI dependencies (Wails v3)
         if: matrix.platform == 'linux-amd64'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libgtk-4-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
+          sudo apt-get install -y -qq libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
 
       # 前端构建三平台都要（GUI go:embed frontend/dist），放矩阵内每平台跑一次，简单可靠
       - name: Build frontend
