@@ -194,6 +194,8 @@ func (m *sidecarManager) Status() SidecarStatus {
 			st.SiteLoaded = c.SiteLoaded
 			st.IPLoaded = c.IPLoaded
 			st.Fallback = c.Fallback
+			st.BytesSent = c.BytesSent
+			st.BytesRecv = c.BytesRecv
 			st.ListenAddr = m.listen
 		}
 	}
@@ -201,6 +203,10 @@ func (m *sidecarManager) Status() SidecarStatus {
 }
 
 // controlStatus 轮询 control HTTP。ready.json 记录实际 control 地址。
+// /v1/status 提供 Version（mode/started_at 等 GUI 暂不消费）；
+// GEO/分流运行态在独立端点 /v1/route/stats（{enabled,stats{proxy,direct,
+// rejected,miss},geo{site_loaded,ip_loaded,rule_count,fallback}}）；
+// 流量在 /v1/stats 的 traffic 段。三者均需 Bearer 鉴权。
 type ctlStatus struct {
 	ControlURL   string `json:"control_url"`
 	Version      string `json:"version"`
@@ -212,6 +218,8 @@ type ctlStatus struct {
 	SiteLoaded   bool   `json:"site_loaded"`
 	IPLoaded     bool   `json:"ip_loaded"`
 	Fallback     string `json:"fallback"`
+	BytesSent    int64  `json:"bytes_sent"`
+	BytesRecv    int64  `json:"bytes_recv"`
 }
 
 func (m *sidecarManager) controlStatus() *ctlStatus {
@@ -226,22 +234,73 @@ func (m *sidecarManager) controlStatus() *ctlStatus {
 	if err := json.Unmarshal(raw, &ready); err != nil {
 		return nil
 	}
+	cs := &ctlStatus{ControlURL: ready.ControlURL}
+
 	client := &http.Client{Timeout: 2 * time.Second}
-	req, err := http.NewRequest(http.MethodGet, ready.ControlURL+"/v1/status", nil)
-	if err != nil {
-		return nil
+	get := func(path string, out any) bool {
+		req, err := http.NewRequest(http.MethodGet, ready.ControlURL+path, nil)
+		if err != nil {
+			return false
+		}
+		req.Header.Set("Authorization", "Bearer "+m.controlToken)
+		resp, err := client.Do(req)
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
+		return json.NewDecoder(resp.Body).Decode(out) == nil
 	}
-	req.Header.Set("Authorization", "Bearer "+m.controlToken)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil
+
+	// 1) /v1/status → Version。
+	var st struct {
+		Version string `json:"version"`
 	}
-	defer resp.Body.Close()
-	var cs ctlStatus
-	if err := json.NewDecoder(resp.Body).Decode(&cs); err != nil {
-		return nil
+	if !get("/v1/status", &st) {
+		return nil // 进程态由 manager 自身字段兜底，control 不通视为未就绪
 	}
-	return &cs
+	cs.Version = st.Version
+
+	// 2) /v1/route/stats → GEO/分流运行态（未启用分流时 enabled=false，字段全零）。
+	var rs struct {
+		Enabled bool `json:"enabled"`
+		Stats   struct {
+			Proxy    int64 `json:"proxy"`
+			Direct   int64 `json:"direct"`
+			Rejected int64 `json:"rejected"`
+		} `json:"stats"`
+		Geo struct {
+			SiteLoaded bool   `json:"site_loaded"`
+			IPLoaded   bool   `json:"ip_loaded"`
+			RuleCount  int    `json:"rule_count"`
+			Fallback   string `json:"fallback"`
+		} `json:"geo"`
+	}
+	if get("/v1/route/stats", &rs) {
+		cs.RouteEnabled = rs.Enabled
+		cs.ProxyHits = rs.Stats.Proxy
+		cs.DirectHits = rs.Stats.Direct
+		cs.RejectedHits = rs.Stats.Rejected
+		cs.SiteLoaded = rs.Geo.SiteLoaded
+		cs.IPLoaded = rs.Geo.IPLoaded
+		cs.RuleCount = rs.Geo.RuleCount
+		cs.Fallback = rs.Geo.Fallback
+	}
+
+	// 3) /v1/stats → 流量增量（诊断包与状态卡展示）。
+	var stats struct {
+		Traffic struct {
+			BytesSent     int64 `json:"bytes_sent"`
+			BytesReceived int64 `json:"bytes_received"`
+		} `json:"traffic"`
+	}
+	if get("/v1/stats", &stats) {
+		cs.BytesSent = stats.Traffic.BytesSent
+		cs.BytesRecv = stats.Traffic.BytesReceived
+	}
+	return cs
 }
 
 // BinExists 检查 sidecar 二进制是否在位（GUI 启动时给前端明确提示）。
