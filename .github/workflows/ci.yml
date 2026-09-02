@@ -57,11 +57,15 @@ jobs:
         shell: bash
         run: |
           git clone --depth 1 --branch feat/route-engine https://github.com/callacat/x-tunnel.git external/x-tunnel
-          go build -C external/x-tunnel -trimpath -o /tmp/x-tunnel.exe ./cmd/x-tunnel
+          # RUNNER_TEMP 跨 shell 一致（/tmp 在 bash 与 pwsh 解析不同目录）
+          go build -C external/x-tunnel -trimpath -o "$RUNNER_TEMP/x-tunnel.exe" ./cmd/x-tunnel
       - name: Run data-plane spike
         shell: pwsh
+        env:
+          XT_BIN: ${{ runner.temp }}/x-tunnel.exe
         run: |
           $ErrorActionPreference = "Stop"
+          if (-not (Test-Path $env:XT_BIN)) { throw "sidecar 未找到: $env:XT_BIN" }
           $work = "$env:RUNNER_TEMP/spike"
           New-Item -ItemType Directory -Force -Path $work | Out-Null
           $ready = "$work/ready.json"
@@ -75,7 +79,7 @@ jobs:
             "cidr": "127.0.0.1/32"
           }
           '@ | Set-Content "$work/server.json"
-          $srv = Start-Process -FilePath /tmp/x-tunnel.exe -ArgumentList "-config","$work/server.json" -PassThru -NoNewWindow -RedirectStandardOutput "$work/server.log" -RedirectStandardError "$work/server.err"
+          $srv = Start-Process -FilePath $env:XT_BIN -ArgumentList "-config","$work/server.json" -PassThru -NoNewWindow -RedirectStandardOutput "$work/server.log" -RedirectStandardError "$work/server.err"
 
           # 2) 客户端 sidecar（GUI 同款 argv：config + control 随机端口 + ready-file + token-file；双监听由 config listen 提供）
           @'
@@ -89,7 +93,7 @@ jobs:
             "route_enabled": false
           }
           '@ | Set-Content "$work/profile.json"
-          $cli = Start-Process -FilePath /tmp/x-tunnel.exe -ArgumentList "-config","$work/profile.json","-control","127.0.0.1:0","-ready-file",$ready,"-control-token-file",$tokenFile -PassThru -NoNewWindow -RedirectStandardOutput "$work/client.log" -RedirectStandardError "$work/client.err"
+          $cli = Start-Process -FilePath $env:XT_BIN -ArgumentList "-config","$work/profile.json","-control","127.0.0.1:0","-ready-file",$ready,"-control-token-file",$tokenFile -PassThru -NoNewWindow -RedirectStandardOutput "$work/client.log" -RedirectStandardError "$work/client.err"
 
           try {
             # 3) ready 轮询（GUI 同款 10s）
