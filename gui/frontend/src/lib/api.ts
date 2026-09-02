@@ -47,6 +47,7 @@ interface ServiceAPI {
   GetLogs(limit: number): Promise<unknown>;
   ClearLogs(): Promise<unknown>;
   SidecarLog(limit: number): Promise<unknown>;
+  ExportDiagnostics(): Promise<unknown>;
   GetVersion(): Promise<unknown>;
   CheckUpdate(): Promise<unknown>;
   OpenExternalBrowser(url: string): Promise<unknown>;
@@ -392,6 +393,18 @@ export async function getSidecarLog(limit = 200): Promise<string> {
     return "（演示模式）sidecar 日志暂不可用";
   }
   const raw = await svc.SidecarLog(limit);
+  return typeof raw === "string" ? raw : String(raw ?? "");
+}
+
+// exportDiagnostics 导出诊断包（zip：diagnostics.json + logs.txt + sidecar.log），
+// 返回文件绝对路径（桌面端）；演示模式返回提示文本。
+export async function exportDiagnostics(): Promise<string> {
+  const svc = await loadService();
+  if (!svc) {
+    await sleep(jitter(400));
+    return "（演示模式）诊断包导出不可用";
+  }
+  const raw = await svc.ExportDiagnostics();
   return typeof raw === "string" ? raw : String(raw ?? "");
 }
 

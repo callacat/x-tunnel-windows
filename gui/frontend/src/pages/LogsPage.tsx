@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ScrollText, Trash2 } from "lucide-react";
-import { getLogs, isDemoMode, clearLogs } from "../lib/api";
+import { Download, ScrollText, Trash2 } from "lucide-react";
+import { getLogs, isDemoMode, clearLogs, exportDiagnostics } from "../lib/api";
 import { fromLogs, LogEntry } from "../lib/types";
 import { logsTailChanged } from "../lib/logsTail";
 import { usePoll } from "../lib/usePoll";
@@ -53,6 +53,21 @@ export default function LogsPage() {
     }
   };
 
+  const [diagBusy, setDiagBusy] = useState(false);
+  const [diagHint, setDiagHint] = useState("");
+  const onExportDiag = async () => {
+    setDiagBusy(true);
+    setDiagHint("");
+    try {
+      const path = await exportDiagnostics();
+      setDiagHint(path.startsWith("（演示模式）") ? path : `已导出：${path}`);
+    } catch {
+      setDiagHint("导出失败");
+    } finally {
+      setDiagBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card
@@ -69,6 +84,9 @@ export default function LogsPage() {
               />
               自动滚动
             </label>
+            <Button variant="ghost" onClick={onExportDiag} loading={diagBusy} className="!px-2 !py-1 text-xs">
+              <Download className="h-3.5 w-3.5" /> 导出诊断包
+            </Button>
             <Button variant="ghost" onClick={onClear} className="!px-2 !py-1 text-xs">
               <Trash2 className="h-3.5 w-3.5" /> 清空
             </Button>
@@ -96,6 +114,7 @@ export default function LogsPage() {
         <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
           <ScrollText className="h-3.5 w-3.5" />
           每秒刷新，最多显示最近 200 条
+          {diagHint && <span className="ml-auto text-emerald-600 dark:text-emerald-400">{diagHint}</span>}
         </p>
       </Card>
     </div>
