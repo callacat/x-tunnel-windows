@@ -101,6 +101,7 @@ jobs:
       - name: Generate Windows PE version resource (goversioninfo)
         if: matrix.platform == 'windows-amd64'
         working-directory: gui
+        shell: bash # windows runner 默认 pwsh，不支持 <<< here-string
         env:
           VERSION: ${{ env.XTUNNEL_WIN_VERSION_NAME }}
         run: |
