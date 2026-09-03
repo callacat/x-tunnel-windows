@@ -95,6 +95,23 @@ jobs:
         run: |
           go build -C gui -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o ../dist/${{ matrix.gui_name }} .
 
+      # Windows PE 版本资源随 tag 注入（versioninfo.json 里 0.0.0.0 仅模板兜底）：
+      # 生成的 resource_windows_amd64.syso 与 main package 同目录，go build 自动链接，
+      # exe 文件属性（FileVersion/ProductVersion）与 zip 文件名、GUI 首页显示三处同源。
+      - name: Generate Windows PE version resource (goversioninfo)
+        if: matrix.platform == 'windows-amd64'
+        working-directory: gui
+        env:
+          VERSION: ${{ env.XTUNNEL_WIN_VERSION_NAME }}
+        run: |
+          NUM="${VERSION%%-*}"
+          go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 \
+            -ver-major "$(cut -d. -f1 <<<"${NUM}")" \
+            -ver-minor "$(cut -d. -f2 <<<"${NUM}")" \
+            -ver-patch "$(cut -d. -f3 <<<"${NUM}")" \
+            -file-version "${NUM}.0" -product-version "${NUM}.0" \
+            -o resource_windows_amd64.syso versioninfo.json
+
       - name: Build sidecar x-tunnel
         run: |
           git clone --depth 1 --branch "${{ env.CORE_REF }}" "https://github.com/${{ env.CORE_REPO }}.git" external/x-tunnel
