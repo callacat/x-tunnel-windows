@@ -86,18 +86,10 @@ jobs:
           npm test -- --run
           npm run build
 
-      # GUI 构建命令三平台统一：-C gui 后 -o ../dist/ 相对 gui/ 落到仓库根 dist/
-      # CGO_ENABLED=1：Wails v3 在 linux/macos 需要 cgo，windows 无 cgo 导入不受影响
-      - name: Build GUI binary
-        env:
-          CGO_ENABLED: "1"
-          VERSION: ${{ env.XTUNNEL_WIN_VERSION_NAME }}
-        run: |
-          go build -C gui -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o ../dist/${{ matrix.gui_name }} .
-
       # Windows PE 版本资源随 tag 注入（versioninfo.json 里 0.0.0.0 仅模板兜底）：
       # 生成的 resource_windows_amd64.syso 与 main package 同目录，go build 自动链接，
       # exe 文件属性（FileVersion/ProductVersion）与 zip 文件名、GUI 首页显示三处同源。
+      # 必须在 Build GUI binary 之前——syso 要参与链接，构建完再生成无效。
       - name: Generate Windows PE version resource (goversioninfo)
         if: matrix.platform == 'windows-amd64'
         working-directory: gui
@@ -113,7 +105,18 @@ jobs:
             -file-version "${NUM}.0" -product-version "${NUM}.0" \
             -o resource_windows_amd64.syso versioninfo.json
 
+      # GUI 构建命令三平台统一：-C gui 后 -o ../dist/ 相对 gui/ 落到仓库根 dist/
+      # CGO_ENABLED=1：Wails v3 在 linux/macos 需要 cgo，windows 无 cgo 导入不受影响
+      - name: Build GUI binary
+        shell: bash # windows runner 默认 pwsh，${VERSION} 会被展开为空
+        env:
+          CGO_ENABLED: "1"
+          VERSION: ${{ env.XTUNNEL_WIN_VERSION_NAME }}
+        run: |
+          go build -C gui -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o ../dist/${{ matrix.gui_name }} .
+
       - name: Build sidecar x-tunnel
+        shell: bash
         run: |
           git clone --depth 1 --branch "${{ env.CORE_REF }}" "https://github.com/${{ env.CORE_REPO }}.git" external/x-tunnel
           go build -C external/x-tunnel -trimpath -ldflags "-s -w" -o "${{ github.workspace }}/dist/${{ matrix.sidecar_name }}" ./cmd/x-tunnel
