@@ -7,6 +7,20 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-04
+
+东哥 v0.1.0 真机反馈修复。
+
+### Fixed
+
+- **演示模式根因**（3c3ee43）：v0.1.0 打包时 Wails bindings 未生成（`__MOCK_BINDINGS__` 占位在库），整个应用跑在演示数据上——前端所有功能调用都到不了后端。本轮 `wails3 generate bindings --ts` 生成真绑定（24 方法/7 模型）入库，release 流程前置绑定生成。
+- **CMD 黑框**（3c3ee43）：sidecar 子进程补 `CREATE_NO_WINDOW`+`HideWindow`，启动/连接不再闪黑框。
+- **sidecar 位置**（3c3ee43）：x-tunnel.exe 移至运行目录 `config/` 子目录，release zip 打包结构同步（GUI 同级 config/x-tunnel.exe + config/rules.txt）。
+
+### Changed
+
+- **自建图标**（3c3ee43）：应用/托盘/PE 资源三处换新设计（橙环+青弧+橙心，`scripts/icongen` 生成），不再与 warp-go 默认图标相同；info.json 品牌同步为 x-tunnel-windows。
+
 ## [0.1.0] - 2026-09-03
 
 首个正式版：x-tunnel 桌面 GUI 客户端（Wails v3），Windows / macOS / Linux 三平台。
