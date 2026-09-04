@@ -32,6 +32,8 @@ jobs:
             runner: windows-latest
             gui_name: x-tunnel-windows.exe
             sidecar_name: x-tunnel.exe
+            # -H windowsgui：PE 子系统设为 GUI，双击启动不弹 CMD 黑框（东哥 09-04 反馈①）
+            gui_ldflags_extra: "-H windowsgui"
           - platform: linux-amd64
             runner: ubuntu-24.04
             gui_name: x-tunnel-windows
@@ -121,7 +123,7 @@ jobs:
           CGO_ENABLED: "1"
           VERSION: ${{ env.XTUNNEL_WIN_VERSION_NAME }}
         run: |
-          go build -C gui -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o ../dist/${{ matrix.gui_name }} .
+          go build -C gui -trimpath -ldflags "-s -w -X main.version=${VERSION} ${{ matrix.gui_ldflags_extra }}" -o ../dist/${{ matrix.gui_name }} .
 
       - name: Build sidecar x-tunnel
         shell: bash
@@ -143,13 +145,18 @@ jobs:
           Get-ChildItem dist | Format-Table Name, Length
 
       # Linux/macOS 用 python3 -m zipfile 打包（ubuntu 自带 python3、macOS 自带，避免装 zip）
+      # 结构与 Windows 对齐（东哥 09-04 反馈②）：sidecar 收运行目录 config/ 下，
+      # 与 GUI 查找路径 execDir()/config/ 一致（service.go newSidecarManager）。
       - name: Package zip (Linux/macOS)
         if: matrix.platform != 'windows-amd64'
+        shell: bash
         run: |
           cp scripts/README-dist.md dist/README.md
-          cp scripts/default-rules.txt dist/rules.txt
+          mkdir -p dist/config
+          mv dist/x-tunnel dist/config/x-tunnel
+          cp scripts/default-rules.txt dist/config/rules.txt
           cd dist
-          python3 -m zipfile -c "x-tunnel-windows-${RELEASE_TAG}-${{ matrix.platform }}.zip" x-tunnel-windows x-tunnel README.md rules.txt
+          python3 -m zipfile -c "x-tunnel-windows-${RELEASE_TAG}-${{ matrix.platform }}.zip" x-tunnel-windows config README.md
           ls -la
 
       - name: Upload zip artifact

@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-04
+
+东哥 v0.1.0 反馈①的收尾修复 + 三平台打包结构对齐。
+
+### Fixed
+
+- **主程序启动黑框**：v0.1.1 只隐藏了 sidecar 子进程窗口，GUI 主程序仍以 CONSOLE 子系统链接（双击仍弹 CMD 黑框）。Windows 构建补 `-H windowsgui`（对齐 Wails 官方生产构建），PE subsystem 实测翻转为 GUI。
+- **Linux/macOS 包结构**：v0.1.1 GUI 三平台统一从 `config/` 查找 sidecar，但 linux/macos zip 仍把内核放根目录——装上即报"未找到内核"。两平台打包与 Windows 对齐：`config/x-tunnel` + `config/rules.txt`。
+
 ## [0.1.1] - 2026-09-04
 
 东哥 v0.1.0 真机反馈修复。
