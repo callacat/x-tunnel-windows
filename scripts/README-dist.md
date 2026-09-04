@@ -15,8 +15,8 @@
 | 文件 | 用途 |
 |---|---|
 | `x-tunnel-windows.exe` | GUI 主程序 |
-| `x-tunnel.exe` | x-tunnel 客户端内核（GUI 自动拉起，勿单独运行） |
-| `rules.txt` | 路由规则（GUI「规则」页可编辑，保存即生效） |
+| `config/x-tunnel.exe` | x-tunnel 客户端内核（GUI 自动拉起，勿单独运行） |
+| `config/rules.txt` | 路由规则（GUI「规则」页可编辑，保存即生效） |
 | `README.md` | 本说明 |
 
 数据目录：`%APPDATA%\x-tunnel-windows`（配置 profiles.json、GEO 库、日志）。

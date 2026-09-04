@@ -60,12 +60,19 @@ func main() {
 	})
 
 	// 系统托盘：状态菜单 + 快速开关 + 退出。
+	// 图标用自建资源（东哥 09-04 反馈③：不与 warp-go 同款）——embed
+	// build/appicon.png 生成托盘图标；macOS 仍走模板图标（系统着色）。
 	tray := app.SystemTray.New()
 	if runtime.GOOS == "darwin" {
 		tray.SetTemplateIcon(icons.SystrayMacTemplate)
 	} else {
-		tray.SetDarkModeIcon(icons.SystrayDark)
-		tray.SetIcon(icons.SystrayLight)
+		if icon := appIconPNG(); icon != nil {
+			tray.SetIcon(icon)
+			tray.SetDarkModeIcon(icon)
+		} else {
+			tray.SetDarkModeIcon(icons.SystrayDark)
+			tray.SetIcon(icons.SystrayLight)
+		}
 	}
 
 	menu := app.Menu.New()

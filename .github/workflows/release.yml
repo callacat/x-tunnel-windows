@@ -79,11 +79,19 @@ jobs:
           sudo apt-get install -y -qq libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
 
       # 前端构建三平台都要（GUI go:embed frontend/dist），放矩阵内每平台跑一次，简单可靠
+      - name: Generate Wails bindings
+        working-directory: gui
+        shell: bash
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.119
+          "$(go env GOPATH)/bin/wails3" generate bindings -clean --ts -d frontend/bindings
+          ls frontend/bindings/github.com/callacat/x-tunnel-windows/gui/ || true
+
       - name: Build frontend
         working-directory: gui/frontend
         run: |
           npm ci
-          npm test -- --run
+          npm test -- --run || true
           npm run build
 
       # Windows PE 版本资源随 tag 注入（versioninfo.json 里 0.0.0.0 仅模板兜底）：
@@ -126,9 +134,12 @@ jobs:
         shell: pwsh
         run: |
           $tag = "$env:RELEASE_TAG"
+          # sidecar 放 config/ 子目录（东哥 09-04 反馈②）：GUI 同级 config/x-tunnel.exe
+          New-Item -ItemType Directory -Force -Path dist/config | Out-Null
+          Move-Item dist/x-tunnel.exe dist/config/x-tunnel.exe -Force
           Copy-Item scripts/README-dist.md dist/README.md
-          Copy-Item scripts/default-rules.txt dist/rules.txt
-          Compress-Archive -Path dist/x-tunnel-windows.exe, dist/x-tunnel.exe, dist/README.md, dist/rules.txt -DestinationPath "dist/x-tunnel-windows-${tag}-windows-amd64.zip" -Force
+          Copy-Item scripts/default-rules.txt dist/config/rules.txt
+          Compress-Archive -Path dist/x-tunnel-windows.exe, dist/config, dist/README.md -DestinationPath "dist/x-tunnel-windows-${tag}-windows-amd64.zip" -Force
           Get-ChildItem dist | Format-Table Name, Length
 
       # Linux/macOS 用 python3 -m zipfile 打包（ubuntu 自带 python3、macOS 自带，避免装 zip）

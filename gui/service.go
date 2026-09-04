@@ -69,8 +69,10 @@ func newService() *Service {
 	svc := &Service{}
 	initLogging()
 	_ = os.MkdirAll(dataDir(), 0o755)
+	// sidecar 与运行时文件放运行目录 config/ 下（东哥 09-04 反馈②）：
+	// GUI exe 同级 config/，绿色便携、用户可见，与 %APPDATA% 状态目录分离。
 	svc.sidecar = newSidecarManager(
-		filepath.Join(execDir(), sidecarBinName()),
+		filepath.Join(execDir(), "config", sidecarBinName()),
 		dataDir(),
 		"", // listen 由激活配置决定
 	)
@@ -140,7 +142,7 @@ func (s *Service) GetStatus() Status {
 		st.LastError = startErr.Error()
 	}
 	if !st.SidecarOK {
-		st.LastError = "未找到 " + sidecarDisplayName() + "（应与 GUI 同目录部署）"
+		st.LastError = "未找到 " + sidecarDisplayName() + "（应放在运行目录 config/ 下）"
 	}
 
 	// 激活配置信息
@@ -193,7 +195,7 @@ func (s *Service) Start() error {
 		return fmt.Errorf("配置无效：%w", err)
 	}
 	if !s.sidecar.BinExists() {
-		return errors.New("未找到 " + sidecarDisplayName() + "（应与 GUI 同目录部署）")
+		return errors.New("未找到 " + sidecarDisplayName() + "（应放在运行目录 config/ 下）")
 	}
 
 	// 合成 config.json（geo/rules 路径锚定 dataDir）

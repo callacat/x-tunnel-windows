@@ -101,6 +101,7 @@ func (m *sidecarManager) Start(cfgPath string, extraArgs []string, readyTimeout 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, m.binPath, args...)
 	cmd.Dir = m.workDir
+	hideSidecarWindow(cmd) // Windows: 不弹 CMD 黑框（东哥 09-04 反馈①）
 	// sidecar 的 stdout/stderr 不直接进 GUI 日志环（控制面日志走 control/ready-file；
 	// 数据面日志由 GUI 轮询时按需拉），先丢到工作目录文件便于诊断。
 	logF, err := os.Create(filepath.Join(m.workDir, "sidecar.log"))

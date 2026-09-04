@@ -1,15 +1,15 @@
 {
 	"fixed": {
-		"file_version": "0.1.0"
+		"file_version": "0.1.1"
 	},
 	"info": {
 		"0000": {
-			"ProductVersion": "0.1.0",
+			"ProductVersion": "0.1.1",
 			"CompanyName": "callacat",
-			"FileDescription": "A warp-go application",
+			"FileDescription": "x-tunnel Windows GUI 客户端",
 			"LegalCopyright": "© 2026, callacat",
-			"ProductName": "warp-go GUI",
-			"Comments": "This is a comment"
+			"ProductName": "x-tunnel-windows",
+			"Comments": "x-tunnel Windows GUI（Wails v3 + sidecar 子进程）"
 		}
 	}
 }
