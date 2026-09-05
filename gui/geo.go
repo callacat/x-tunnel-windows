@@ -39,10 +39,10 @@ func geoDir() string {
 // （东哥 09-05 反馈③：下载无进度/成败反馈）。
 var geoInit = struct {
 	mu       sync.Mutex
-	state    string // idle|downloading|done|failed
-	current  string // 正在下载的文件名
+	state    string  // idle|downloading|done|failed
+	current  string  // 正在下载的文件名
 	progress float64 // 0-100（当前文件）
-	error    string // 失败原因（state=failed 时非空）
+	error    string  // 失败原因（state=failed 时非空）
 }{state: "idle"}
 
 // setGeoInit 更新初始化状态（线程安全）。

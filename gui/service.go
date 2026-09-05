@@ -22,26 +22,26 @@ import (
 
 // Status 是前端状态快照（GetStatus 返回）。
 type Status struct {
-	State        string `json:"state"`
-	ListenAddr   string `json:"listen_addr"`
-	ControlURL   string `json:"control_url"`
-	Version      string `json:"version"`
-	LastError    string `json:"last_error"`
-	StartedAt    string `json:"started_at"`
-	SysProxyOn   bool   `json:"sys_proxy_on"`
-	InitDone     bool   `json:"init_done"`
-	SidecarOK    bool   `json:"sidecar_ok"`  // sidecar 二进制在位
-	ActiveName   string `json:"active_name"` // 当前激活配置名
-	Configured   bool   `json:"configured"`  // 已配置服务器
-	RouteEnabled bool   `json:"route_enabled,omitempty"`
-	RuleCount    int    `json:"rule_count,omitempty"`
-	ProxyHits    int64  `json:"proxy_hits,omitempty"`
-	DirectHits   int64  `json:"direct_hits,omitempty"`
-	RejectedHits int64  `json:"rejected_hits,omitempty"`
-	SiteLoaded   bool   `json:"site_loaded,omitempty"`
-	IPLoaded     bool   `json:"ip_loaded,omitempty"`
-	BytesSent    int64  `json:"bytes_sent,omitempty"`
-	BytesRecv    int64  `json:"bytes_recv,omitempty"`
+	State        string    `json:"state"`
+	ListenAddr   string    `json:"listen_addr"`
+	ControlURL   string    `json:"control_url"`
+	Version      string    `json:"version"`
+	LastError    string    `json:"last_error"`
+	StartedAt    string    `json:"started_at"`
+	SysProxyOn   bool      `json:"sys_proxy_on"`
+	InitDone     bool      `json:"init_done"`
+	SidecarOK    bool      `json:"sidecar_ok"`  // sidecar 二进制在位
+	ActiveName   string    `json:"active_name"` // 当前激活配置名
+	Configured   bool      `json:"configured"`  // 已配置服务器
+	RouteEnabled bool      `json:"route_enabled,omitempty"`
+	RuleCount    int       `json:"rule_count,omitempty"`
+	ProxyHits    int64     `json:"proxy_hits,omitempty"`
+	DirectHits   int64     `json:"direct_hits,omitempty"`
+	RejectedHits int64     `json:"rejected_hits,omitempty"`
+	SiteLoaded   bool      `json:"site_loaded,omitempty"`
+	IPLoaded     bool      `json:"ip_loaded,omitempty"`
+	BytesSent    int64     `json:"bytes_sent,omitempty"`
+	BytesRecv    int64     `json:"bytes_recv,omitempty"`
 	Init         InitState `json:"init"` // 启动初始化（GEO 下载）进度
 }
 
