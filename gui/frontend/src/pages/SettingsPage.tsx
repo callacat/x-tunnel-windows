@@ -85,7 +85,9 @@ export default function SettingsPage() {
   // GitHub 加速地址（反馈④）。
   const [ghProxy, setGhProxyVal] = useState("");
   const [ghProxyDraft, setGhProxyDraft] = useState("");
-  const { run: runGh, notice: ghNotice, error: ghError } = useAsyncAction();
+  // busy 必须解构出来按 key 判断（v0.1.3 bug：runGh 是函数引用恒非 null，
+  // loading={runGh !== null} 让保存按钮永久转圈禁用——东哥 09-05 反馈①）。
+  const { busy: ghBusy, run: runGh, notice: ghNotice, error: ghError } = useAsyncAction();
 
   useEffect(() => {
     getAutostartEnabled().then(setAutostartState).catch(() => {});
@@ -482,7 +484,7 @@ export default function SettingsPage() {
             placeholder="https://gh-proxy.org 或 off"
             disabled={busy}
           />
-          <Button onClick={onSaveGhProxy} loading={runGh !== null} disabled={busy}>
+          <Button onClick={onSaveGhProxy} loading={ghBusy === "ghproxy"} disabled={busy}>
             <Save className="h-4 w-4" /> 保存
           </Button>
           {ghNotice && <span className="text-sm text-emerald-600 dark:text-emerald-400">{ghNotice}</span>}

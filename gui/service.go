@@ -403,7 +403,7 @@ func (s *Service) GetGhProxy() string { return ghProxy() }
 func (s *Service) SetGhProxy(prefix string) error {
 	v := strings.TrimSpace(prefix)
 	if v == "" {
-		v = "https://gh-proxy.org" // 默认值（东哥 09-05 反馈④）
+		v = ghProxyDefault // 默认值（东哥 09-05 反馈④）
 	} else if v != "off" && !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
 		return fmt.Errorf("加速地址必须是 http(s):// 开头或 off（直连）")
 	}
