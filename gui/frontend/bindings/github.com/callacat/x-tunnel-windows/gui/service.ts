@@ -65,11 +65,27 @@ export function GetGeo(): $CancellablePromise<$models.GeoInfo> {
 }
 
 /**
+ * GetGhProxy 返回 GitHub 加速前缀设置（空 = 未设置，前端展示默认值）。
+ */
+export function GetGhProxy(): $CancellablePromise<string> {
+    return $Call.ByID(3321858856);
+}
+
+/**
+ * GetInitState 返回初始化状态快照（前端 Status 轮询消费）。
+ */
+export function GetInitState(): $CancellablePromise<$models.InitState> {
+    return $Call.ByID(4004471970).then(($result: any) => {
+        return $$createType5($result);
+    });
+}
+
+/**
  * GetLogs 返回日志环（最近 limit 条）。
  */
 export function GetLogs(limit: number): $CancellablePromise<$models.LogEntry[]> {
     return $Call.ByID(2910743932, limit).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType7($result);
     });
 }
 
@@ -85,7 +101,7 @@ export function GetRules(): $CancellablePromise<string> {
  */
 export function GetStatus(): $CancellablePromise<$models.Status> {
     return $Call.ByID(1244446001).then(($result: any) => {
-        return $$createType7($result);
+        return $$createType8($result);
     });
 }
 
@@ -105,6 +121,7 @@ export function GetVersion(): $CancellablePromise<string> {
 
 /**
  * InitDefaults 初始化 GEO 数据库（幂等；失败不阻塞 GUI，状态页可手动重试）。
+ * 进度状态写 geoInit 供前端轮询（东哥 09-05 反馈③）。
  */
 export function InitDefaults(): $CancellablePromise<void> {
     return $Call.ByID(4037609349);
@@ -122,7 +139,7 @@ export function IsRunning(): $CancellablePromise<boolean> {
  */
 export function ListProfiles(): $CancellablePromise<$models.AppProfiles> {
     return $Call.ByID(3030445699).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType9($result);
     });
 }
 
@@ -163,6 +180,14 @@ export function SetAutostart(enabled: boolean): $CancellablePromise<void> {
 }
 
 /**
+ * SetGhProxy 保存 GitHub 加速前缀（"off"=直连；空=恢复默认 gh-proxy.org）。
+ * 空串按默认值落盘，保证 profiles.json 里始终有明确语义。
+ */
+export function SetGhProxy(prefix: string): $CancellablePromise<void> {
+    return $Call.ByID(2450509996, prefix);
+}
+
+/**
  * SetSystemProxy 开启/关闭系统代理（指向激活配置的本地监听）。
  * 开启且未运行时自动启动。
  */
@@ -196,7 +221,7 @@ export function Stop(): $CancellablePromise<void> {
  */
 export function UpdateGeo(): $CancellablePromise<$models.UpdateGeoResult> {
     return $Call.ByID(1224723457).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType10($result);
     });
 }
 
@@ -206,8 +231,9 @@ const $$createType1 = $Create.Nullable($$createType0);
 const $$createType2 = $models.UpdateInfo.createFrom;
 const $$createType3 = $Create.Nullable($$createType2);
 const $$createType4 = $models.GeoInfo.createFrom;
-const $$createType5 = $models.LogEntry.createFrom;
-const $$createType6 = $Create.Array($$createType5);
-const $$createType7 = $models.Status.createFrom;
-const $$createType8 = $models.AppProfiles.createFrom;
-const $$createType9 = $models.UpdateGeoResult.createFrom;
+const $$createType5 = $models.InitState.createFrom;
+const $$createType6 = $models.LogEntry.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = $models.Status.createFrom;
+const $$createType9 = $models.AppProfiles.createFrom;
+const $$createType10 = $models.UpdateGeoResult.createFrom;

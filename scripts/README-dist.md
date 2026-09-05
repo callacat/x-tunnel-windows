@@ -17,6 +17,7 @@
 | `x-tunnel-windows.exe` | GUI 主程序 |
 | `config/x-tunnel.exe` | x-tunnel 客户端内核（GUI 自动拉起，勿单独运行） |
 | `config/rules.txt` | 路由规则（GUI「规则」页可编辑，保存即生效） |
+| `config/geo/` | GEO 分流数据库（GUI 首次启动自动下载；可用「配置」页 GitHub 加速地址提速） |
 | `README.md` | 本说明 |
 
 数据目录：`%APPDATA%\x-tunnel-windows`（配置 profiles.json、GEO 库、日志）。

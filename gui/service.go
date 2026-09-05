@@ -42,6 +42,7 @@ type Status struct {
 	IPLoaded     bool   `json:"ip_loaded,omitempty"`
 	BytesSent    int64  `json:"bytes_sent,omitempty"`
 	BytesRecv    int64  `json:"bytes_recv,omitempty"`
+	Init         InitState `json:"init"` // 启动初始化（GEO 下载）进度
 }
 
 // Service 持有 sidecar 管理器与配置目录。
@@ -107,6 +108,7 @@ func initLogging() {
 }
 
 // InitDefaults 初始化 GEO 数据库（幂等；失败不阻塞 GUI，状态页可手动重试）。
+// 进度状态写 geoInit 供前端轮询（东哥 09-05 反馈③）。
 func (s *Service) InitDefaults() {
 	s.mu.Lock()
 	if s.defaultsInit {
@@ -115,6 +117,7 @@ func (s *Service) InitDefaults() {
 	}
 	s.mu.Unlock()
 
+	migrateGeoDir() // 旧 %APPDATA%/geo → 运行目录 config/geo（反馈⑤，一次性）
 	if err := updateGeoFiles(false); err != nil {
 		log.Printf("⚠ GEO 初始化失败（可稍后在 GEO 页手动更新）：%v", err)
 		return
@@ -137,6 +140,7 @@ func (s *Service) GetStatus() Status {
 		State:     "stopped",
 		InitDone:  initDone,
 		SidecarOK: s.sidecar.BinExists(),
+		Init:      s.GetInitState(),
 	}
 	if startErr != nil {
 		st.LastError = startErr.Error()
@@ -198,9 +202,9 @@ func (s *Service) Start() error {
 		return errors.New("未找到 " + sidecarDisplayName() + "（应放在运行目录 config/ 下）")
 	}
 
-	// 合成 config.json（geo/rules 路径锚定 dataDir）
+	// 合成 config.json（geo 路径锚定运行目录 config/geo，rules 锚定数据目录）
 	dir := dataDir()
-	fc := synthesizeFileConfig(*p, filepath.Join(dir, "geo"), filepath.Join(dir, "rules.txt"), true)
+	fc := synthesizeFileConfig(*p, geoDir(), filepath.Join(dir, "rules.txt"), true)
 	cfgData, _ := jsonMarshalIndent(fc)
 	cfgPath := filepath.Join(dir, "config.json")
 	if err := atomicWriteFile(cfgPath, cfgData); err != nil {
@@ -367,10 +371,10 @@ type GeoInfo struct {
 
 // GetGeo 返回 GEO 数据库状态。
 func (s *Service) GetGeo() (GeoInfo, error) {
-	dir := filepath.Join(dataDir(), "geo")
+	dir := geoDir()
 	info := GeoInfo{
 		Repository: "https://github.com/MetaCubeX/meta-rules-dat",
-		BaseURL:    "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest",
+		BaseURL:    geoBaseURL,
 	}
 	info.GeositePath = filepath.Join(dir, "geosite.dat")
 	info.GeoIPPath = filepath.Join(dir, "geoip-lite.dat")
@@ -389,6 +393,23 @@ func (s *Service) UpdateGeo() UpdateGeoResult {
 		return UpdateGeoResult{OK: false, Message: "更新失败：" + err.Error()}
 	}
 	return UpdateGeoResult{OK: true, Message: "GEO 数据已更新"}
+}
+
+// GetGhProxy 返回 GitHub 加速前缀设置（空 = 未设置，前端展示默认值）。
+func (s *Service) GetGhProxy() string { return ghProxy() }
+
+// SetGhProxy 保存 GitHub 加速前缀（"off"=直连；空=恢复默认 gh-proxy.org）。
+// 空串按默认值落盘，保证 profiles.json 里始终有明确语义。
+func (s *Service) SetGhProxy(prefix string) error {
+	v := strings.TrimSpace(prefix)
+	if v == "" {
+		v = "https://gh-proxy.org" // 默认值（东哥 09-05 反馈④）
+	} else if v != "off" && !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+		return fmt.Errorf("加速地址必须是 http(s):// 开头或 off（直连）")
+	}
+	p := loadProfiles(dataDir())
+	p.GhProxy = strings.TrimRight(v, "/")
+	return saveProfiles(dataDir(), p)
 }
 
 // UpdateGeoResult 是手动更新 GEO 的结果。

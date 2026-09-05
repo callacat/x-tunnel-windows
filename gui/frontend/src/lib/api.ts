@@ -46,6 +46,9 @@ interface ServiceAPI {
   GetAutostartEnabled(): Promise<unknown>;
   GetLogs(limit: number): Promise<unknown>;
   ClearLogs(): Promise<unknown>;
+  GetInitState(): Promise<unknown>;
+  GetGhProxy(): Promise<unknown>;
+  SetGhProxy(prefix: string): Promise<unknown>;
   SidecarLog(limit: number): Promise<unknown>;
   ExportDiagnostics(): Promise<unknown>;
   GetVersion(): Promise<unknown>;
@@ -336,6 +339,44 @@ export async function getAutostartEnabled(): Promise<boolean> {
     return mockState.autostart;
   }
   return (await svc.GetAutostartEnabled()) === true;
+}
+
+// ---------- 初始化进度 / GitHub 加速设置（东哥 09-05 反馈③④） ----------
+
+export interface InitState {
+  state: "idle" | "downloading" | "done" | "failed";
+  current?: string;
+  progress?: number;
+  error?: string;
+}
+
+export async function getInitState(): Promise<InitState> {
+  const svc = await loadService();
+  if (!svc) {
+    return { state: "done" };
+  }
+  const o = ((await svc.GetInitState()) ?? {}) as Partial<InitState>;
+  return {
+    state: o.state ?? "idle",
+    current: o.current,
+    progress: typeof o.progress === "number" ? o.progress : undefined,
+    error: o.error,
+  };
+}
+
+export const DEFAULT_GH_PROXY = "https://gh-proxy.org";
+
+export async function getGhProxy(): Promise<string> {
+  const svc = await loadService();
+  if (!svc) return DEFAULT_GH_PROXY;
+  const v = (await svc.GetGhProxy()) || DEFAULT_GH_PROXY;
+  return String(v);
+}
+
+export async function setGhProxy(prefix: string): Promise<void> {
+  const svc = await loadService();
+  if (!svc) return;
+  await svc.SetGhProxy(prefix);
 }
 
 export async function getLogs(limit = 200): Promise<LogEntry[]> {

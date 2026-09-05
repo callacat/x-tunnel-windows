@@ -1,21 +1,35 @@
 import { useEffect, useState } from "react";
 import {
   CheckCircle2,
+  Github,
   Monitor,
   Moon,
   Palette,
   Pencil,
   Plus,
+  Rocket,
   Save,
   Sun,
   Trash2,
 } from "lucide-react";
-import { getProfiles, getStatus, saveProfiles } from "../lib/api";
+import {
+  checkUpdate,
+  getAutostartEnabled,
+  getGhProxy,
+  getProfiles,
+  getStatus,
+  getVersion,
+  openExternalBrowser,
+  saveProfiles,
+  setAutostart,
+  setGhProxy,
+} from "../lib/api";
 import { AppProfiles, Profile } from "../lib/types";
 import { useThemeContext } from "../lib/ThemeContext";
 import type { ThemeMode } from "../lib/theme";
 import { Button, Card, Field, Toggle, inputCls } from "../components/ui";
 import { usePoll } from "../lib/usePoll";
+import { useAsyncAction } from "../lib/useAsyncAction";
 
 const THEME_OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: "light", label: "浅色", icon: Sun },
@@ -59,6 +73,72 @@ export default function SettingsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   // 删除二次确认（点一次进入确认态，5 秒无操作自动取消）。
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  // 开机自启（东哥 09-05 反馈①：从状态页迁入配置页）。
+  const [autostart, setAutostartState] = useState(false);
+  const [autostartBusy, setAutostartBusy] = useState(false);
+  // 关于/检查更新（同反馈①）。
+  const [version, setVersion] = useState("…");
+  const [updateInfo, setUpdateInfo] = useState<string | null>(null);
+  const [updateUrl, setUpdateUrl] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  // GitHub 加速地址（反馈④）。
+  const [ghProxy, setGhProxyVal] = useState("");
+  const [ghProxyDraft, setGhProxyDraft] = useState("");
+  const { run: runGh, notice: ghNotice, error: ghError } = useAsyncAction();
+
+  useEffect(() => {
+    getAutostartEnabled().then(setAutostartState).catch(() => {});
+    getVersion().then(setVersion).catch(() => {});
+    getGhProxy()
+      .then((v) => {
+        setGhProxyVal(v);
+        setGhProxyDraft(v);
+      })
+      .catch(() => {});
+  }, []);
+
+  const toggleAutostart = async (v: boolean) => {
+    setAutostartBusy(true);
+    try {
+      await setAutostart(v);
+      setAutostartState(v);
+    } catch {
+      // 失败保持原状，按钮已禁用由 busy 控制
+    } finally {
+      setAutostartBusy(false);
+    }
+  };
+
+  const onCheckUpdate = async () => {
+    setChecking(true);
+    setUpdateInfo(null);
+    setUpdateUrl(null);
+    try {
+      const info = await checkUpdate();
+      if (info.has_update) {
+        setUpdateInfo(`发现新版本 ${info.tag}（当前 ${version}）`);
+        setUpdateUrl(info.url || null);
+      } else if (info.latest && info.latest !== "dev") {
+        setUpdateInfo(`已是最新版本 ${info.latest}`);
+      } else {
+        setUpdateInfo("当前为开发版，无法比较版本");
+      }
+    } catch (e) {
+      setUpdateInfo(`检查失败：${String(e)}`);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const onSaveGhProxy = async () => {
+    await runGh("ghproxy", async () => {
+      await setGhProxy(ghProxyDraft);
+      const saved = await getGhProxy();
+      setGhProxyVal(saved);
+      setGhProxyDraft(saved);
+    });
+  };
 
   const load = async () => {
     try {
@@ -382,6 +462,82 @@ export default function SettingsPage() {
           </p>
         </Card>
       )}
+
+      <Card title="GitHub 加速">
+        <div className="flex items-start gap-3">
+          <Github className="mt-0.5 h-5 w-5 text-orange-500" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">加速下载前缀</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              GEO 数据库与检查更新经此前缀下载 GitHub 资源；填 <code>off</code> 直连。
+              默认 <code>https://gh-proxy.org</code>
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <input
+            className={`${inputCls} max-w-md flex-1 font-mono`}
+            value={ghProxyDraft}
+            onChange={(e) => setGhProxyDraft(e.target.value)}
+            placeholder="https://gh-proxy.org 或 off"
+            disabled={busy}
+          />
+          <Button onClick={onSaveGhProxy} loading={runGh !== null} disabled={busy}>
+            <Save className="h-4 w-4" /> 保存
+          </Button>
+          {ghNotice && <span className="text-sm text-emerald-600 dark:text-emerald-400">{ghNotice}</span>}
+          {ghError && <span className="text-sm text-red-600 dark:text-red-400">{ghError}</span>}
+        </div>
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          当前生效：{ghProxy || "https://gh-proxy.org（默认）"}
+        </p>
+      </Card>
+
+      <Card title="开机自启">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <Rocket className="mt-0.5 h-5 w-5 text-orange-500" />
+            <div>
+              <p className="text-sm font-medium">登录后自动启动</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                系统登录时自动运行（Windows 注册表 / macOS LaunchAgent / Linux autostart）
+              </p>
+            </div>
+          </div>
+          <Toggle checked={autostart} onChange={toggleAutostart} disabled={autostartBusy} />
+        </div>
+      </Card>
+
+      <Card title="关于">
+        <div className="flex items-center gap-3">
+          <Rocket className="h-5 w-5 text-orange-500" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">x-tunnel-windows {version}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              x-tunnel 客户端（WS/WSS 隧道）
+            </p>
+          </div>
+          <Button variant="secondary" onClick={onCheckUpdate} disabled={checking}>
+            {checking ? "检查中…" : "检查更新"}
+          </Button>
+        </div>
+        {updateInfo && (
+          <p className="mt-3 text-sm">
+            <span className={updateUrl ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}>
+              {updateInfo}
+            </span>
+            {updateUrl && (
+              <button
+                type="button"
+                onClick={() => openExternalBrowser(updateUrl)}
+                className="ml-2 text-orange-600 underline dark:text-orange-400"
+              >
+                前往下载
+              </button>
+            )}
+          </p>
+        )}
+      </Card>
 
       <Card title="外观">
         <div className="flex items-start gap-3">

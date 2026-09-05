@@ -1,13 +1,8 @@
 import { useEffect, useState } from "react";
-import { Database, Globe, Play, Rocket, Square } from "lucide-react";
+import { Database, Globe, Play, Square } from "lucide-react";
 import {
-  checkUpdate,
-  getAutostartEnabled,
   getStatus,
   getSystemProxyEnabled,
-  getVersion,
-  openExternalBrowser,
-  setAutostart,
   setSystemProxy,
   start,
   stop,
@@ -46,23 +41,12 @@ export default function StatusPage() {
   // proxyEnabled 跟随轮询的 status.sysProxyOn（后端每 2s 读真实系统状态）：
   // 外部软件关闭系统代理时开关自动变关。初始化时读一次兜底。
   const [proxyEnabled, setProxyEnabled] = useState(false);
-  const [autostart, setAutostartState] = useState(false);
-  const [autostartBusy, setAutostartBusy] = useState(false);
-  const [version, setVersion] = useState("…");
-  const [updateInfo, setUpdateInfo] = useState<string | null>(null);
-  const [updateUrl, setUpdateUrl] = useState<string | null>(null);
-  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     if (statusRaw) setProxyEnabled(statusRaw.sysProxyOn);
     else getSystemProxyOnce().then(setProxyEnabled);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusRaw]);
-
-  useEffect(() => {
-    getAutostartEnabled().then(setAutostartState).catch(() => {});
-    getVersion().then(setVersion).catch(() => {});
-  }, []);
 
   const toggleRunning = async () => {
     await run(status.running ? "stop" : "start", async () => {
@@ -82,38 +66,19 @@ export default function StatusPage() {
     }
   };
 
-  const toggleAutostart = async (v: boolean) => {
-    setAutostartBusy(true);
-    try {
-      await setAutostart(v);
-      setAutostartState(v);
-    } catch {
-      // 失败保持原状，按钮已禁用由 busy 控制
-    } finally {
-      setAutostartBusy(false);
+  // 初始化（GEO 下载）进度文案——后端每 2s 随状态轮询回报（反馈③）。
+  const init = status.init;
+  const initHint = (() => {
+    if (status.initDone || status.running) return null;
+    if (init?.state === "downloading") {
+      const p = typeof init.progress === "number" ? Math.floor(init.progress) : 0;
+      return `正在下载 ${init.current ?? "GEO 数据库"} ${p}%（GitHub 加速地址可在配置页调整）`;
     }
-  };
-
-  const onCheckUpdate = async () => {
-    setChecking(true);
-    setUpdateInfo(null);
-    setUpdateUrl(null);
-    try {
-      const info = await checkUpdate();
-      if (info.has_update) {
-        setUpdateInfo(`发现新版本 ${info.tag}（当前 ${version}）`);
-        setUpdateUrl(info.url || null);
-      } else if (info.latest && info.latest !== "dev") {
-        setUpdateInfo(`已是最新版本 ${info.latest}`);
-      } else {
-        setUpdateInfo("当前为开发版，无法比较版本");
-      }
-    } catch (e) {
-      setUpdateInfo(`检查失败：${String(e)}`);
-    } finally {
-      setChecking(false);
+    if (init?.state === "failed") {
+      return `初始化失败：${init.error ?? "未知原因"}——可到 GEO 页重试，或在配置页更换 GitHub 加速地址`;
     }
-  };
+    return "正在初始化（默认规则 / GEO 数据库下载中），完成后即可启动";
+  })();
 
   return (
     <div className="space-y-4">
@@ -169,9 +134,15 @@ export default function StatusPage() {
               </>
             )}
           </Button>
-          {!status.initDone && !status.running && (
-            <span className="text-xs text-amber-600 dark:text-amber-400">
-              正在初始化（默认规则 / GEO 数据库下载中），完成后即可启动
+          {initHint && (
+            <span
+              className={`text-xs ${
+                init?.state === "failed"
+                  ? "text-red-600 dark:text-red-400"
+                  : "text-amber-600 dark:text-amber-400"
+              }`}
+            >
+              {initHint}
             </span>
           )}
           {actionError && (
@@ -260,52 +231,6 @@ export default function StatusPage() {
           </div>
           <Toggle checked={proxyEnabled} onChange={toggleProxy} label="系统代理" />
         </div>
-      </Card>
-
-      <Card title="开机自启">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <Rocket className="mt-0.5 h-5 w-5 text-orange-500" />
-            <div>
-              <p className="text-sm font-medium">登录后自动启动</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                系统登录时自动运行（Windows 注册表 / macOS LaunchAgent / Linux autostart）
-              </p>
-            </div>
-          </div>
-          <Toggle checked={autostart} onChange={toggleAutostart} disabled={autostartBusy} />
-        </div>
-      </Card>
-
-      <Card title="关于">
-        <div className="flex items-center gap-3">
-          <Rocket className="h-5 w-5 text-orange-500" />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">x-tunnel-windows {version}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              x-tunnel 客户端（WS/WSS 隧道）
-            </p>
-          </div>
-          <Button variant="secondary" onClick={onCheckUpdate} disabled={checking}>
-            {checking ? "检查中…" : "检查更新"}
-          </Button>
-        </div>
-        {updateInfo && (
-          <p className="mt-3 text-sm">
-            <span className={updateUrl ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}>
-              {updateInfo}
-            </span>
-            {updateUrl && (
-              <button
-                type="button"
-                onClick={() => openExternalBrowser(updateUrl)}
-                className="ml-2 text-orange-600 underline dark:text-orange-400"
-              >
-                前往下载
-              </button>
-            )}
-          </p>
-        )}
       </Card>
     </div>
   );

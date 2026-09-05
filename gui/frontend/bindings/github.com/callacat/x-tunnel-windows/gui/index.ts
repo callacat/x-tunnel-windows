@@ -9,6 +9,7 @@ export {
 export {
     AppProfiles,
     GeoInfo,
+    InitState,
     LogEntry,
     Status,
     UpdateGeoResult,

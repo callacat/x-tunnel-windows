@@ -24,6 +24,12 @@ export interface AppStatus {
   ipLoaded?: boolean; // geoip 数据已加载
   bytesSent?: number; // 上行字节
   bytesRecv?: number; // 下行字节
+  init?: {
+    state: "idle" | "downloading" | "done" | "failed";
+    current?: string;
+    progress?: number;
+    error?: string;
+  };
 }
 
 // Profile 是 GUI 管理的一个服务器配置（对齐 Go gui.XTunnelProfile 全字段）。
@@ -101,6 +107,14 @@ export function fromStatus(v: any): AppStatus {
     ipLoaded: o.ip_loaded === true,
     bytesSent: typeof o.bytes_sent === "number" ? o.bytes_sent : 0,
     bytesRecv: typeof o.bytes_recv === "number" ? o.bytes_recv : 0,
+    init: o.init
+      ? {
+          state: o.init.state ?? "idle",
+          current: o.init.current,
+          progress: typeof o.init.progress === "number" ? o.init.progress : undefined,
+          error: o.init.error,
+        }
+      : undefined,
   };
 }
 
@@ -175,6 +189,9 @@ export function fromLogs(v: any): LogEntry[] {
   const out: LogEntry[] = [];
   for (const raw of v) {
     const o = raw ?? {};
+    // 空条目直接丢弃（防御：后端环形缓冲空槽位/旧版残留——空 level 会被
+    // 下面归一化成 info，表现为日志页 info 空行刷屏）。
+    if (!o.msg && !o.time) continue;
     const lv = (o.level ?? "info").toLowerCase();
     out.push({
       time: o.time ?? "",

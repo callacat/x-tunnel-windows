@@ -97,21 +97,16 @@ func (r *ringLogger) Snapshot(n int) []LogEntry {
 }
 
 // getLogs 返回最近 limit 条日志（limit<=0 返回全部）。
+// 必须按实际写入条数取（环形数组预分配 ringCap，len(buf) 恒等于容量，
+// 未写满时尾部空槽位会被当空日志返回——前端把空 level 归一化成 info 刷屏）。
 func getLogs(limit int) []LogEntry {
-	ringLog.mu.Lock()
-	defer ringLog.mu.Unlock()
-	n := len(ringLog.buf)
-	if limit <= 0 || limit > n {
-		limit = n
+	if limit <= 0 || limit > ringCap {
+		limit = ringCap
 	}
-	out := make([]LogEntry, limit)
-	copy(out, ringLog.buf[n-limit:])
-	return out
+	return ringLog.Snapshot(limit)
 }
 
-// clearLogs 清空日志环。
+// clearLogs 清空日志环（重置写入游标，保留预分配容量）。
 func clearLogs() {
-	ringLog.mu.Lock()
-	ringLog.buf = ringLog.buf[:0]
-	ringLog.mu.Unlock()
+	ringLog.Clear()
 }

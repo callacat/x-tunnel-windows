@@ -38,6 +38,9 @@ type XTunnelProfile struct {
 type AppProfiles struct {
 	ActiveName string           `json:"active_profile"`
 	Profiles   []XTunnelProfile `json:"profiles"`
+	// GhProxy 是 GitHub 加速下载前缀（东哥 09-05 反馈④），用于 GEO 数据库
+	// 与检查更新等 GitHub 下载。空 = 默认 https://gh-proxy.org；"off" = 直连。
+	GhProxy string `json:"gh_proxy,omitempty"`
 }
 
 // DefaultProfile 返回一个空模板配置（不内置任何真实服务器地址/token——

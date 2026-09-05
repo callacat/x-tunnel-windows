@@ -38,3 +38,43 @@ func TestInitLoggingNoStdTimestampPrefix(t *testing.T) {
 		t.Errorf("环形缓冲时间戳格式异常：%q", e.Time)
 	}
 }
+
+// TestGetLogsNoEmptySlots 回归（东哥 09-05 反馈②）：环形数组预分配 ringCap，
+// 未写满时 getLogs 必须只返回实际写入条数——把空槽位返回会让前端把空 level
+// 归一化成 info，日志页被空 info 行刷屏。
+func TestGetLogsNoEmptySlots(t *testing.T) {
+	ringLog = &ringLogger{buf: make([]LogEntry, ringCap)}
+	log.Printf("第一条")
+	log.Printf("第二条")
+	log.Printf("第三条")
+
+	got := getLogs(0) // 0=全部
+	if len(got) != 3 {
+		t.Fatalf("期望 3 条，得到 %d（空槽位泄漏）", len(got))
+	}
+	for i, e := range got {
+		if e.Msg == "" && e.Time == "" && e.Level == "" {
+			t.Errorf("第 %d 条是空槽位", i)
+		}
+	}
+	if got[0].Msg == "" || !strings.Contains(got[2].Msg, "第三条") {
+		t.Errorf("日志顺序异常：%q..%q", got[0].Msg, got[2].Msg)
+	}
+}
+
+// TestClearLogsThenAppend 回归：clearLogs 重置游标后继续 Append 不得越界
+// 或 resurrect 旧数据。
+func TestClearLogsThenAppend(t *testing.T) {
+	ringLog = &ringLogger{buf: make([]LogEntry, ringCap)}
+	log.Printf("旧日志")
+	clearLogs()
+	log.Printf("新日志")
+
+	got := getLogs(0)
+	if len(got) != 1 {
+		t.Fatalf("清空后应只有 1 条，得到 %d", len(got))
+	}
+	if !strings.Contains(got[0].Msg, "新日志") {
+		t.Errorf("内容异常：%q", got[0].Msg)
+	}
+}

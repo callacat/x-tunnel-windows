@@ -12,6 +12,12 @@ export class AppProfiles {
     "active_profile": string;
     "profiles": XTunnelProfile[];
 
+    /**
+     * GhProxy 是 GitHub 加速下载前缀（东哥 09-05 反馈④），用于 GEO 数据库
+     * 与检查更新等 GitHub 下载。空 = 默认 https://gh-proxy.org；"off" = 直连。
+     */
+    "gh_proxy"?: string;
+
     /** Creates a new AppProfiles instance. */
     constructor($$source: Partial<AppProfiles> = {}) {
         if (!("active_profile" in $$source)) {
@@ -72,6 +78,48 @@ export class GeoInfo {
     static createFrom($$source: any = {}): GeoInfo {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new GeoInfo($$parsedSource as Partial<GeoInfo>);
+    }
+}
+
+/**
+ * InitState 是启动初始化进度快照。
+ */
+export class InitState {
+    /**
+     * idle|downloading|done|failed
+     */
+    "state": string;
+
+    /**
+     * 正在下载的文件
+     */
+    "current"?: string;
+
+    /**
+     * 0-100
+     */
+    "progress"?: number;
+
+    /**
+     * 失败原因
+     */
+    "error"?: string;
+
+    /** Creates a new InitState instance. */
+    constructor($$source: Partial<InitState> = {}) {
+        if (!("state" in $$source)) {
+            this["state"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new InitState instance from a string or object.
+     */
+    static createFrom($$source: any = {}): InitState {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new InitState($$parsedSource as Partial<InitState>);
     }
 }
 
@@ -148,6 +196,11 @@ export class Status {
     "bytes_sent"?: number;
     "bytes_recv"?: number;
 
+    /**
+     * 启动初始化（GEO 下载）进度
+     */
+    "init": InitState;
+
     /** Creates a new Status instance. */
     constructor($$source: Partial<Status> = {}) {
         if (!("state" in $$source)) {
@@ -183,6 +236,9 @@ export class Status {
         if (!("configured" in $$source)) {
             this["configured"] = false;
         }
+        if (!("init" in $$source)) {
+            this["init"] = (new InitState());
+        }
 
         Object.assign(this, $$source);
     }
@@ -191,7 +247,11 @@ export class Status {
      * Creates a new Status instance from a string or object.
      */
     static createFrom($$source: any = {}): Status {
+        const $$createField20_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("init" in $$parsedSource) {
+            $$parsedSource["init"] = $$createField20_0($$parsedSource["init"]);
+        }
         return new Status($$parsedSource as Partial<Status>);
     }
 }
@@ -375,3 +435,4 @@ export class XTunnelProfile {
 // Private type creation functions
 const $$createType0 = XTunnelProfile.createFrom;
 const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = InitState.createFrom;
