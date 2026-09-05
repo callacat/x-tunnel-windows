@@ -162,6 +162,11 @@ func (s *Service) GetStatus() Status {
 		st.State = ss.State
 		st.ControlURL = ss.ControlURL
 		st.Version = ss.Version
+		// 启动时间：sidecarManager 记录的进程拉起时刻（东哥 v0.1.4 反馈①：
+		// 此前 GetStatus 从未赋值，前端启动时间一直显示"—"）。
+		if !s.sidecar.startedAt.IsZero() {
+			st.StartedAt = s.sidecar.startedAt.Format("2006-01-02 15:04:05")
+		}
 		st.RouteEnabled = ss.RouteEnabled
 		st.RuleCount = ss.RuleCount
 		st.ProxyHits = ss.ProxyHits
@@ -237,7 +242,14 @@ func (s *Service) Stop() error {
 	s.started = false
 	s.mu.Unlock()
 	// 停止时还原系统代理（防止残留指向已死的 socks5 端口）。
-	_ = sysproxy.Set("", false)
+	// 禁用路径不依赖地址（空串放行）——v0.1.4 东哥真机回归：此前空串在
+	// splitAddr 报「missing port in address」，ProxyEnable 清不掉，开关卡死。
+	if err := sysproxy.Set("", false); err != nil {
+		log.Printf("⚠ 停止时还原系统代理失败：%v（可在状态页手动关闭系统代理）", err)
+	} else {
+		log.Println("✓ 系统代理已还原")
+	}
+	log.Println("代理已停止")
 	return s.sidecar.Stop()
 }
 

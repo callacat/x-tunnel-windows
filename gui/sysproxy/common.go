@@ -8,9 +8,9 @@ import (
 )
 
 // Set 将系统代理指向 addr（形如 "host:port"，host 可为域名或 IP，IPv6 需方括号）。
-// enabled=false 时清除系统代理（还原到禁用状态）。
-// httpAddr 与 socksAddr 允许不同（x-tunnel 场景：http/https 段走 HTTP 代理
-// 端口，socks 段走 SOCKS5 端口）；为空时全部用 addr。
+// enabled=false 时清除系统代理（还原到禁用状态）——此时 addr 可为空串
+// （清除不依赖地址）。httpAddr 与 socksAddr 允许不同（x-tunnel 场景：
+// http/https 段走 HTTP 代理端口，socks 段走 SOCKS5 端口）；为空时全部用 addr。
 //
 // 各平台实现：
 //   - windows：写入 HKCU Internet Settings 的 ProxyEnable/ProxyServer
@@ -21,8 +21,16 @@ func Set(addr string, enabled bool) error {
 }
 
 // SetDual 同 Set，但 http/https 段与 socks 段可分别指向不同地址。
-// 语义见 Set；两个地址都会做 host:port 校验。
+// 语义见 Set；启用时两个地址都会做 host:port 校验。
+//
+// 禁用路径（v0.1.4 东哥真机回归）：不对地址做校验——清除系统代理只动
+// ProxyEnable/mode/proxystate，地址用不上；此前空串地址在 splitAddr 就报
+// 「missing port in address」，导致停止内核后系统代理永远关不掉（开关卡死）。
 func SetDual(httpAddr, socksAddr string, enabled bool) error {
+	if !enabled {
+		// 清除只需一次（只动开关），地址不参与，空串直接放行。
+		return set("", "", "", "", false)
+	}
 	hh, hp, err := splitAddr(httpAddr)
 	if err != nil {
 		return err
@@ -30,10 +38,6 @@ func SetDual(httpAddr, socksAddr string, enabled bool) error {
 	sh, sp, err := splitAddr(socksAddr)
 	if err != nil {
 		return err
-	}
-	if !enabled {
-		// 清除只需一次（只动 ProxyEnable）。
-		return set(hh, hp, sh, sp, false)
 	}
 	return set(hh, hp, sh, sp, true)
 }
@@ -50,20 +54,29 @@ func Enabled(addr string) (bool, error) {
 }
 
 // EnabledDual 同 Enabled，但任一地址命中即视为启用。
+// 地址为空串时该侧跳过（返回 false 不报错）——无激活配置/监听未解析时
+// 前端轮询不应收到错误（v0.1.4 东哥真机回归）。
 func EnabledDual(httpAddr, socksAddr string) (bool, error) {
-	hh, hp, err := splitAddr(httpAddr)
-	if err != nil {
-		return false, err
+	if strings.TrimSpace(httpAddr) == "" && strings.TrimSpace(socksAddr) == "" {
+		return false, nil
+	}
+	var on bool
+	var err error
+	if hh, hp, e := splitAddr(httpAddr); e == nil {
+		on, err = enabled(hh, hp)
+		if err != nil || on {
+			return on, err
+		}
 	}
 	sh, sp, err := splitAddr(socksAddr)
 	if err != nil {
-		return false, err
+		return on, nil // http 侧已查过未命中；socks 地址非法不致命
 	}
-	on1, err := enabled(hh, hp)
-	if err != nil || on1 {
-		return on1, err
+	on2, err2 := enabled(sh, sp)
+	if err2 != nil {
+		return on, nil
 	}
-	return enabled(sh, sp)
+	return on2, nil
 }
 
 func splitAddr(addr string) (string, string, error) {

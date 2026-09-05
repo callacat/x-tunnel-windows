@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, ScrollText, Trash2 } from "lucide-react";
-import { getLogs, isDemoMode, clearLogs, exportDiagnostics } from "../lib/api";
-import { fromLogs, LogEntry } from "../lib/types";
+import { getLogs, getSidecarLog, isDemoMode, clearLogs, exportDiagnostics } from "../lib/api";
+import { LogEntry } from "../lib/types";
+import { parseSidecarLog } from "../lib/sidecarLog";
 import { logsTailChanged } from "../lib/logsTail";
 import { usePoll } from "../lib/usePoll";
 import { Button, Card } from "../components/ui";
@@ -18,10 +19,21 @@ export default function LogsPage() {
   const [demo, setDemo] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
 
-  const { data: freshLogs } = usePoll(
-    async () => fromLogs(await getLogs(200)),
-    1000,
-  );
+  // 轮询合并两路日志（东哥 v0.1.4 反馈②）：GUI 环（控制面：启动/初始化/错误）
+  // + sidecar.log 尾部（数据面：连接/分流/直连明细）。此前日志页只显示 GUI 环，
+  // 运行期几乎无输出——「日志未显示任何信息」即此。
+  const { data: freshLogs } = usePoll(async () => {
+    const [guiEntries, sidecarRaw] = await Promise.all([
+      getLogs(200),
+      getSidecarLog(200).catch(() => ""),
+    ]);
+    const sidecarEntries = parseSidecarLog(sidecarRaw, 200);
+    // 合并按时间排序（GUI 环与 sidecar 各自带 HH:MM:SS 时间戳），取尾部 200。
+    const merged = [...guiEntries, ...sidecarEntries].sort((a, b) =>
+      a.time.localeCompare(b.time),
+    );
+    return merged.slice(-200);
+  }, 1000);
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
