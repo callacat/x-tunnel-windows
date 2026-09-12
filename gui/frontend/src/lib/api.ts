@@ -25,6 +25,9 @@ import {
   LogEntry,
   Profile,
   toProfile,
+  BAIDU_DEFAULT_SERVER,
+  BAIDU_DEFAULT_CONNECT_HOST,
+  BAIDU_DEFAULT_HEADERS,
 } from "./types";
 
 // ---------- backend service shape (structural, mirror of gui/service.go) ----------
@@ -89,6 +92,10 @@ const mockState = {
       dialIPs: "",
       ipStrategy: "4",
       dnsCacheTTL: "5m",
+      baiduRelay: false,
+      baiduServer: BAIDU_DEFAULT_SERVER,
+      baiduConnectHost: BAIDU_DEFAULT_CONNECT_HOST,
+      baiduHeaders: { ...BAIDU_DEFAULT_HEADERS },
     },
   ] as Profile[],
   activeProfile: "我的服务器",
