@@ -48,7 +48,24 @@ export interface Profile {
   dialIPs: string; // -ip CF 优选 IP/域名，逗号分隔
   ipStrategy: string; // 4|6|4,6|6,4
   dnsCacheTTL: string;
+  // 百度中转（recvv22hIoqhoe）：开启后经百度云 CONNECT 隧道连服务端（默认关）。
+  // ⚠ 开启时优选 IP 不生效（内核坑：改写 CONNECT 目标为 CF IP → 百度 503）。
+  baiduRelay: boolean;
+  baiduServer: string;
+  baiduConnectHost: string;
+  baiduHeaders: Record<string, string>;
 }
+
+// 百度中转默认参数（对齐 Go defaultBaiduServer / Android XTunnelProfile；实测放行值）。
+export const BAIDU_DEFAULT_SERVER = "cloudnproxy.baidu.com:443";
+export const BAIDU_DEFAULT_CONNECT_HOST = "sptest.baidu.com";
+export const BAIDU_DEFAULT_HEADERS: Record<string, string> = {
+  "X-T5-Auth": "482857715",
+  "User-Agent":
+    "okhttp/3.11.0 Dalvik/2.1.0 (Linux; Build/RKQ1.200826.002) baiduboxapp/11.0.5.12 (Baidu; P1 11)",
+  "Proxy-Connection": "keep-alive",
+  Connection: "keep-alive",
+};
 
 // AppProfiles 是 profiles.json 的顶层结构。
 export interface AppProfiles {
@@ -136,6 +153,18 @@ export function fromProfile(v: any): Profile {
     dialIPs: String(o.dial_ips ?? ""),
     ipStrategy: String(o.ip_strategy ?? "4"),
     dnsCacheTTL: String(o.dns_cache_ttl ?? "5m"),
+    baiduRelay: o.baidu_relay === true,
+    baiduServer: String(o.baidu_server ?? BAIDU_DEFAULT_SERVER),
+    baiduConnectHost: String(o.baidu_connect_host ?? BAIDU_DEFAULT_CONNECT_HOST),
+    baiduHeaders: (() => {
+      const h = o.baidu_headers;
+      if (h && typeof h === "object" && Object.keys(h).length > 0) {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(h)) out[k] = String(v);
+        return out;
+      }
+      return { ...BAIDU_DEFAULT_HEADERS };
+    })(),
   };
 }
 
@@ -165,6 +194,10 @@ export function toProfile(p: Profile): Record<string, unknown> {
     dial_ips: p.dialIPs,
     ip_strategy: p.ipStrategy,
     dns_cache_ttl: p.dnsCacheTTL,
+    baidu_relay: p.baiduRelay,
+    baidu_server: p.baiduServer,
+    baidu_connect_host: p.baiduConnectHost,
+    baidu_headers: p.baiduHeaders,
   };
 }
 

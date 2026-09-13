@@ -24,7 +24,7 @@ import {
   setAutostart,
   setGhProxy,
 } from "../lib/api";
-import { AppProfiles, Profile } from "../lib/types";
+import { AppProfiles, Profile, BAIDU_DEFAULT_SERVER, BAIDU_DEFAULT_CONNECT_HOST, BAIDU_DEFAULT_HEADERS } from "../lib/types";
 import { useThemeContext } from "../lib/ThemeContext";
 import type { ThemeMode } from "../lib/theme";
 import { Button, Card, Field, Toggle, inputCls } from "../components/ui";
@@ -39,6 +39,27 @@ const THEME_OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
 
 // IPv4/IPv6 策略可选值（对齐 Go XTunnelProfile.IPStrategy 注释）。
 const IP_STRATEGY_OPTIONS = ["4", "6", "4,6", "6,4"];
+
+// 百度中转请求头 <-> 「每行 名称: 值」编辑文本互转。
+function baiduHeadersToText(headers: Record<string, string>): string {
+  return Object.entries(headers)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n");
+}
+
+function baiduHeadersFromText(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const idx = trimmed.indexOf(":");
+    if (idx <= 0) continue;
+    const key = trimmed.slice(0, idx).trim();
+    if (!key) continue;
+    out[key] = trimmed.slice(idx + 1).trim();
+  }
+  return out;
+}
 
 // 新建配置的默认模板（对齐 Go DefaultProfile：不内置任何真实服务器地址/token）。
 function blankProfile(n: number): Profile {
@@ -57,6 +78,10 @@ function blankProfile(n: number): Profile {
     dialIPs: "",
     ipStrategy: "4",
     dnsCacheTTL: "5m",
+    baiduRelay: false,
+    baiduServer: BAIDU_DEFAULT_SERVER,
+    baiduConnectHost: BAIDU_DEFAULT_CONNECT_HOST,
+    baiduHeaders: { ...BAIDU_DEFAULT_HEADERS },
   };
 }
 
@@ -396,12 +421,20 @@ export default function SettingsPage() {
                 onChange={(e) => setField("connections", Math.max(1, Number(e.target.value) || 1))}
               />
             </Field>
-            <Field label="优选 IP" hint="-ip CF 优选 IP/域名，逗号分隔（空=自动）">
+            <Field
+              label="优选 IP"
+              hint={
+                editing.baiduRelay
+                  ? "百度中转开启时优选 IP 不生效（会被改写为经中转 CONNECT）"
+                  : "-ip CF 优选 IP/域名，逗号分隔（空=自动）"
+              }
+            >
               <input
                 className={inputCls}
                 value={editing.dialIPs}
                 onChange={(e) => setField("dialIPs", e.target.value)}
                 placeholder="162.159.192.5,162.159.193.10"
+                disabled={editing.baiduRelay}
               />
             </Field>
             <Field label="IPv4 策略" hint="4=仅 IPv4，6=仅 IPv6，4,6 等=优先顺序">
@@ -448,6 +481,50 @@ export default function SettingsPage() {
                 </div>
                 <Toggle checked={editing.fallback} onChange={(v) => setField("fallback", v)} label="fallback" />
               </div>
+            </div>
+
+            {/* 百度中转（recvv22hIoqhoe） */}
+            <div className="flex flex-col gap-3 sm:col-span-2">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                    百度中转（经百度云 CONNECT 隧道连接服务器）
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    用于直连被干扰（优选 IP 会被忽略）的场景；关闭则直连，行为与旧版一致。
+                  </p>
+                </div>
+                <Toggle checked={editing.baiduRelay} onChange={(v) => setField("baiduRelay", v)} label="baidu-relay" />
+              </div>
+              {editing.baiduRelay && (
+                <>
+                  <Field label="中转服务器（主机:端口）" hint="默认 cloudnproxy.baidu.com:443">
+                    <input
+                      className={inputCls}
+                      value={editing.baiduServer}
+                      onChange={(e) => setField("baiduServer", e.target.value)}
+                      placeholder={BAIDU_DEFAULT_SERVER}
+                    />
+                  </Field>
+                  <Field label="CONNECT 伪装 Host" hint="留空=用服务器域名；默认 sptest.baidu.com">
+                    <input
+                      className={inputCls}
+                      value={editing.baiduConnectHost}
+                      onChange={(e) => setField("baiduConnectHost", e.target.value)}
+                      placeholder={BAIDU_DEFAULT_CONNECT_HOST}
+                    />
+                  </Field>
+                  <Field label="中转请求头" hint="每行一条 名称: 值">
+                    <textarea
+                      className={inputCls}
+                      rows={4}
+                      value={baiduHeadersToText(editing.baiduHeaders)}
+                      onChange={(e) => setField("baiduHeaders", baiduHeadersFromText(e.target.value))}
+                      placeholder={"X-T5-Auth: ...\nUser-Agent: ..."}
+                    />
+                  </Field>
+                </>
+              )}
             </div>
           </div>
 

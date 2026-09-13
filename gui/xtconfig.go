@@ -32,6 +32,29 @@ type XTunnelProfile struct {
 	DialIPs     string `json:"dial_ips"`    // -ip CF 优选 IP/域名，逗号分隔
 	IPStrategy  string `json:"ip_strategy"` // 4|6|4,6|6,4
 	DNSCacheTTL string `json:"dns_cache_ttl"`
+	// 百度中转（baidu-tunnel，recvv22hIoqhoe）：开启后经百度云 CONNECT 隧道连服务端，
+	// 用于 CF 直连被干扰场景（内核 websocket_front_proxy，默认参数=2026-09-13 实测值）。
+	// ⚠ 开启时优选 IP 不生效：内核会用优选 IP 改写 CONNECT 目标为 CF IP → 百度 503。
+	BaiduRelay       bool              `json:"baidu_relay"`
+	BaiduServer      string            `json:"baidu_server"`
+	BaiduConnectHost string            `json:"baidu_connect_host"`
+	BaiduHeaders     map[string]string `json:"baidu_headers"`
+}
+
+// 百度中转默认参数（对齐 Android XTunnelProfile companion；实测放行值，全部可配置）。
+const (
+	defaultBaiduServer      = "cloudnproxy.baidu.com:443"
+	defaultBaiduConnectHost = "sptest.baidu.com"
+)
+
+// defaultBaiduHeaders 每次返回独立副本（map 是引用，避免多 profile 共享同一底层 map）。
+func defaultBaiduHeaders() map[string]string {
+	return map[string]string{
+		"X-T5-Auth":        "482857715",
+		"User-Agent":       "okhttp/3.11.0 Dalvik/2.1.0 (Linux; Build/RKQ1.200826.002) baiduboxapp/11.0.5.12 (Baidu; P1 11)",
+		"Proxy-Connection": "keep-alive",
+		"Connection":       "keep-alive",
+	}
 }
 
 // AppProfiles 是 profiles.json 的顶层结构。
@@ -58,6 +81,11 @@ func DefaultProfile(n int) XTunnelProfile {
 		Fallback:    true,
 		IPStrategy:  "4",
 		DNSCacheTTL: "5m",
+		// 百度中转默认关（回归安全）；开启时高级参数预填实测放行值，可改。
+		BaiduRelay:       false,
+		BaiduServer:      defaultBaiduServer,
+		BaiduConnectHost: defaultBaiduConnectHost,
+		BaiduHeaders:     defaultBaiduHeaders(),
 	}
 }
 
@@ -103,6 +131,21 @@ func validateProfile(p XTunnelProfile) error {
 	if !strings.HasPrefix(p.LocalListen, "socks5://") {
 		return errors.New("本地监听必须是 socks5:// 格式")
 	}
+	// 百度中转：开启时校验必填项（host:port 宽松校验，权威校验在 sidecar）。
+	if p.BaiduRelay {
+		s := strings.TrimSpace(p.BaiduServer)
+		if s == "" {
+			return errors.New("百度中转已开启：中转服务器不能为空")
+		}
+		if _, _, err := net.SplitHostPort(s); err != nil {
+			return fmt.Errorf("百度中转服务器须为 主机:端口 格式：%s", s)
+		}
+		for k := range p.BaiduHeaders {
+			if strings.TrimSpace(k) == "" {
+				return errors.New("百度中转请求头包含空名称")
+			}
+		}
+	}
 	return nil
 }
 
@@ -123,7 +166,11 @@ func synthesizeFileConfig(p XTunnelProfile, geoDir, rulesPath string, routeEnabl
 	str("dns", p.DNS)
 	str("ech", p.ECH)
 	str("block", p.BlockPorts)
-	str("ip", p.DialIPs)
+	// 百度中转联动：内核会用优选 IP 改写 CONNECT 目标为 CF IP → 百度 503，
+	// 故开启时强制忽略 dialIPs（前端 UI 同步提示）。
+	if !p.BaiduRelay {
+		str("ip", p.DialIPs)
+	}
 	str("ips", p.IPStrategy)
 	str("dns_cache_ttl", p.DNSCacheTTL)
 	str("geo_dir", geoDir)
@@ -139,6 +186,26 @@ func synthesizeFileConfig(p XTunnelProfile, geoDir, rulesPath string, routeEnabl
 	}
 	if routeEnabled {
 		fc["route_enabled"] = true
+	}
+	if p.BaiduRelay {
+		headers := p.BaiduHeaders
+		if len(headers) == 0 {
+			headers = defaultBaiduHeaders()
+		}
+		server := strings.TrimSpace(p.BaiduServer)
+		if server == "" {
+			server = defaultBaiduServer
+		}
+		fwp := map[string]any{
+			"enabled": true,
+			"type":    "http_connect",
+			"server":  server,
+			"headers": headers,
+		}
+		if h := strings.TrimSpace(p.BaiduConnectHost); h != "" {
+			fwp["connect_host"] = h
+		}
+		fc["websocket_front_proxy"] = fwp
 	}
 	return fc
 }
