@@ -46,6 +46,8 @@ jobs:
   data-plane-spike:
     runs-on: windows-latest
     timeout-minutes: 15
+    env:
+      CORE_REF: v0.5.0
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -53,10 +55,10 @@ jobs:
           go-version-file: gui/go.mod
           cache: true
           cache-dependency-path: gui/go.sum
-      - name: Build sidecar (callacat/x-tunnel @ feat/route-engine)
+      - name: Build sidecar (callacat/x-tunnel @ ${{ env.CORE_REF }})
         shell: bash
         run: |
-          git clone --depth 1 --branch feat/route-engine https://github.com/callacat/x-tunnel.git external/x-tunnel
+          git clone --depth 1 --branch "${{ env.CORE_REF }}" https://github.com/callacat/x-tunnel.git external/x-tunnel
           # RUNNER_TEMP 跨 shell 一致（/tmp 在 bash 与 pwsh 解析不同目录）
           go build -C external/x-tunnel -trimpath -o "$RUNNER_TEMP/x-tunnel.exe" ./cmd/x-tunnel
       - name: Run data-plane spike
