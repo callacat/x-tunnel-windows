@@ -126,8 +126,10 @@ func TestSynthesizeFileConfigBaiduRelay(t *testing.T) {
 	if fcCwp["server"] != "relay.example.com:8443" {
 		t.Errorf("自定义 server 不符: %v", fcCwp["server"])
 	}
-	if _, ok := fcCwp["connect_host"]; ok {
-		t.Error("connect_host 留空时不应写该字段")
+	if fcCwp["connect_host"] != "sptest.baidu.com" {
+		// connect_host 留空时必须兜底默认值（实测放行值）——内核对空的 fallback 是
+		// Host=target（服务域名）→ 百度 403（2026-09-14 东哥 Win 实测 403 根因）。
+		t.Errorf("connect_host 留空时应兜底 sptest.baidu.com，实际: %v", fcCwp["connect_host"])
 	}
 	if h := fcCwp["headers"].(map[string]string); h["X-T5-Auth"] != "999" {
 		t.Errorf("自定义 headers 不符: %v", h)

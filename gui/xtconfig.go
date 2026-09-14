@@ -197,13 +197,17 @@ func synthesizeFileConfig(p XTunnelProfile, geoDir, rulesPath string, routeEnabl
 			server = defaultBaiduServer
 		}
 		fwp := map[string]any{
-			"enabled": true,
-			"type":    "http_connect",
-			"server":  server,
-			"headers": headers,
+			"enabled":      true,
+			"type":         "http_connect",
+			"server":       server,
+			"connect_host": strings.TrimSpace(p.BaiduConnectHost),
+			"headers":      headers,
 		}
-		if h := strings.TrimSpace(p.BaiduConnectHost); h != "" {
-			fwp["connect_host"] = h
+		if strings.TrimSpace(fwp["connect_host"].(string)) == "" {
+			// 旧 profile（v0.1.5 及以前）无 baidu_* 字段 → 反序列化后 connect_host 为空。
+			// 内核对空 connect_host 的 fallback 是 Host=target（xt.ipyx.eu.cc）→ 百度 403
+			//（2026-09-14 东哥 Win 实测 403 根因；实测放行值=sptest.baidu.com）。
+			fwp["connect_host"] = defaultBaiduConnectHost
 		}
 		fc["websocket_front_proxy"] = fwp
 	}
