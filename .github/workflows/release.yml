@@ -22,7 +22,7 @@ env:
   CORE_REPO: callacat/x-tunnel
   # 内核锚定：正式 tag（route 线已合入 main，含 CI + Release 资产 + GHCR 镜像）。
   # 升级内核版本时改这里（与 ci.yml data-plane-spike 的 CORE_REF 同步）。
-  CORE_REF: v0.5.0
+  CORE_REF: v0.5.2
 
 jobs:
   build:

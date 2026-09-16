@@ -29,9 +29,12 @@ func set(httpHost, httpPort, socksHost, socksPort string, enabled bool) error {
 			}
 		}
 		if enabled {
-			// 旁路回环域名与地址（macOS networksetup 逐项传参，逗号分隔）。
+			// 旁路回环与内网段（macOS networksetup 逐项传参，逗号分隔，支持
+			// 通配）：与 Windows 侧 ProxyOverride 同款内网豁免——192.168.x.x
+			// 与 CGNAT 100.64.x.x（Tailscale 网段）的 IP 字面量默认不被
+			// localhost 旁路覆盖，会误吸进代理（recvvlI1JMNbc7）。
 			if err := exec.Command("networksetup",
-				"-setproxybypassdomains", svc, "localhost,127.0.0.1,::1").Run(); err != nil {
+				"-setproxybypassdomains", svc, "localhost,127.0.0.1,::1,192.168.*,100.64.*").Run(); err != nil {
 				return fmt.Errorf("networksetup -setproxybypassdomains %q 失败：%v", svc, err)
 			}
 		}

@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.8] - 2026-09-16
+
+内网 WebSocket 经系统代理无法访问修复（recvvlI1JMNbc7，内核配套 v0.5.2）。
+
+### Fixed
+
+- **内网 IP 被误吸进代理**：`ProxyOverride` 原硬编码 `<local>;localhost`——Windows `<local>` 只豁免无点号短主机名，对 `192.168.1.200` / `100.64.0.9` 等 IP 字面量无效，内网流量被转进代理。改为追加通配内网段：`<local>;localhost;127.*;192.168.*;100.64.*`（回环 + 192.168.x.x + CGNAT/Tailscale 100.64.x.x）。webssh 网关 5 秒 HTTP-DIRECT 重连循环（beiling 实测）随之根除。
+- **macOS 同款内网豁免**：`networksetup -setproxybypassdomains` 同步追加 `192.168.*` / `100.64.*`。
+- 内核侧配套：x-tunnel v0.5.2——HTTP 代理对含 `Upgrade` 头的请求整段透传 hop-by-hop 头（不再剥离 Upgrade/Connection），WS 握手语义端到端成立。
+
+### Changed
+
+- CI/Release 内核锚定 `CORE_REF` v0.5.0 → v0.5.2（随内核 WS 透传修复升级）。
+
 ## [0.1.5] - 2026-09-05
 
 东哥 v0.1.4 真机反馈修复（系统代理卡死为最高优）。

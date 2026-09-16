@@ -40,9 +40,11 @@ func set(httpHost, httpPort, socksHost, socksPort string, enabled bool) error {
 	if err := k.SetStringValue("ProxyServer", proxyServer); err != nil {
 		return fmt.Errorf("写入 ProxyServer 失败：%w", err)
 	}
-	// <local> 是 Windows 专用 token：本机与局域网地址（含回环）一律不经
-	// 代理。旁路本地服务（如 WebSSH 网关），避免其流量被转回代理端口。
-	if err := k.SetStringValue("ProxyOverride", "<local>;localhost"); err != nil {
+	// <local> 是 Windows 专用 token，但只豁免无点号的短主机名，对
+	// 192.168.1.200 这类 IP 无效（recvvlI1JMNbc7 实锤：内网 webssh 被误吸进
+	// 代理）。追加通配内网段：回环、192.168.x.x、CGNAT 100.64.x.x（Tailscale
+	// 网段）。保留 <local>;localhost 旁路语义不变。
+	if err := k.SetStringValue("ProxyOverride", "<local>;localhost;127.*;192.168.*;100.64.*"); err != nil {
 		return fmt.Errorf("写入 ProxyOverride 失败：%w", err)
 	}
 	if err := k.SetDWordValue("ProxyEnable", 1); err != nil {
