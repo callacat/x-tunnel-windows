@@ -1,6 +1,6 @@
 name: Release
 # tag 触发：三平台矩阵（windows-amd64 / linux-amd64 / macos-arm64）构建 GUI + sidecar
-# GUI（go build gui/，ldflags 注入 main.version）+ sidecar（git clone callacat/x-tunnel @ v0.5.0 后 go build ./cmd/x-tunnel）
+# GUI（go build gui/，ldflags 注入 main.version）+ sidecar（git clone callacat/x-tunnel @ v0.5.5 后 go build ./cmd/x-tunnel）
 # 每平台打包 zip（GUI+sidecar+README+默认规则）上传 artifact → 汇总 job 生成总 SHA256SUMS → GitHub Release
 # 版本单源：tag（vX.Y.Z）→ XTUNNEL_WIN_VERSION_NAME 注入 GUI version.ldflags。
 # Linux 端 GUI 是 Wails v3，需 CGO + gtk4/webkitgtk-6.0/libsoup-3.0 开发库，构建前 apt 安装。
@@ -22,7 +22,7 @@ env:
   CORE_REPO: callacat/x-tunnel
   # 内核锚定：正式 tag（route 线已合入 main，含 CI + Release 资产 + GHCR 镜像）。
   # 升级内核版本时改这里（与 ci.yml data-plane-spike 的 CORE_REF 同步）。
-  CORE_REF: v0.5.2
+  CORE_REF: v0.5.5
 
 jobs:
   build:

@@ -47,7 +47,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     env:
-      CORE_REF: v0.5.2
+      CORE_REF: v0.5.5
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
